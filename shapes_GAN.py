@@ -25,46 +25,8 @@ from torchvision.utils import make_grid
 
 from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
 
-class ResBlock(ImageClassificationBase):
-    def __init__(self, channels_in, channels_out, stride=1):
-        super().__init__()
-        #self.layerBN = nn.BatchNorm2d(channels_in)
-        self.layerRelu = nn.ReLU()
-        self.layerConv = nn.Conv2d(channels_in, channels_out, kernel_size=3, padding=1, stride = stride)
-        self.layerpool = nn.MaxPool2d(2, 2)
-        if channels_in != channels_out:
-            self.layerRes = nn.Conv2d(channels_in, channels_out, kernel_size=1, stride = stride)
-        else:
-            self.layerRes = lambda x: x
-    
-    def forward(self, x):
-        #x = self.layerBN(x)
-        x = self.layerRelu(x)
-        y = self.layerConv(x)
-        r = self.layerRes(x)
-        return y.add_(r)
 
 
-class ResNet(ImageClassificationBase):
-    def __init__(self, nOutput):
-        super(ResNet, self).__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1),   # 32 x 64 x 64
-            ResBlock(32, 16),                                       # 16 x 32 x 32
-            nn.Conv2d(16, 8, kernel_size=3, stride=1, padding=1),   # 8 x 32 x 32
-            nn.MaxPool2d(2, 2),                                     # 8 x 16 x 16
-            ResBlock(8, 8),                                         # 8 x 8 x 8
-            
-            nn.BatchNorm2d(8),
-            nn.ReLU(),
-            nn.AdaptiveAvgPool2d(1),
-            nn.Flatten(),
-            nn.Linear(8, nOutput),
-            nn.Relu(),
-        )
-
-    def forward(self, x):
-        return self.net(x)
 
 def main():
     transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
@@ -78,8 +40,9 @@ def main():
     num_epochs = 10
     max_lr = 0.005
 
-
-    history = model.fitData(num_epochs, max_lr, train_dl, val_dl)
+    optimizer = torch.optim.SGD(model.parameters(), max_lr, momentum=0.9)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, max_lr, steps_per_epoch=len(train_dl), epochs=num_epochs)
+    history = model.fitData(num_epochs, train_dl, val_dl, optimizer, scheduler)
     model.getDatasetAccuracy(testset)
 
 if __name__ == '__main__':
