@@ -29,20 +29,23 @@ class NetCNN(ImageClassificationBase):
     def __init__(self, nOutput):
         super(NetCNN, self).__init__()
         self.net = nn.Sequential(
-            nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1), # 32 x 64 x 64
+            nn.Conv2d(1, 4, kernel_size=3, stride=1, padding=1), # 4 x 64 x 64
             nn.ReLU(),
-            nn.MaxPool2d(2, 2), # 32 x 32 x 32
-            nn.Conv2d(32, 16, kernel_size=3, stride=1, padding=1), # 16 x 32 x 32
+            nn.MaxPool2d(2, 2), # 4 x 32 x 32
+            nn.Conv2d(4, 8, kernel_size=3, stride=1, padding=1), # 8 x 32 x 32
             nn.ReLU(),
-            nn.MaxPool2d(2, 2), # 16 x 16 x 16
-            nn.Conv2d(16, 8, kernel_size=3, stride=1, padding=1), # 8 x 16 x 16
+            nn.MaxPool2d(2, 2), # 8 x 16 x 16
+            nn.Conv2d(8, 16, kernel_size=3, stride=1, padding=1), # 16 x 16 x 16
             nn.ReLU(),
-            nn.MaxPool2d(2, 2), # 8 x 8 x 8
-            
+            nn.MaxPool2d(2, 2), # 16 x 8 x 8
+            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1), # 32 x 16 x 16
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2), # 32 x 8 x 8
+
             nn.Flatten(), 
-            nn.Linear(8*8*8, 50),
+            nn.Linear(32 * 8 * 8, 32 * 8),
             nn.ReLU(),
-            nn.Linear(50, nOutput)
+            nn.Linear(32 * 8, nOutput)
         )
 
     def forward(self, x):
