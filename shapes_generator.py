@@ -127,12 +127,12 @@ def generateData(force = False):
             newPath = os.path.join(currentPath, targetPath)
             os.makedirs(targetPath, exist_ok=True)
 
-    dataset = [["train", 20000], ["test", 5000]]
+    dataset = [["train", 50000], ["test", 25000]]
     shapes = ["ellipse", "line", "polygon", "rectangle", "circle"]
     for set, number in dataset:
         for j in shapes:
             for i in range(0, int(number/len(shapes))):
-                [img, shape] = createObject(width=64, height=64, color=255, shape=j, fillColor=0)
+                [img, shape] = createObject(width=64, height=64, color=255, shape=j, fillColor="random")
                 filename = str("%0"+str(len(str(number)))+"d") % (i,)
                 path = os.path.join(currentPath, "data_shape", set, shape)
             

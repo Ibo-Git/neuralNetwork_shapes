@@ -31,21 +31,21 @@ class NetCNN(ImageClassificationBase):
         self.net = nn.Sequential(
             nn.Conv2d(1, 4, kernel_size=3, stride=1, padding=1), # 4 x 64 x 64
             nn.ReLU(),
+            nn.BatchNorm2d(4),
             nn.MaxPool2d(2, 2), # 4 x 32 x 32
             nn.Conv2d(4, 8, kernel_size=3, stride=1, padding=1), # 8 x 32 x 32
             nn.ReLU(),
+            nn.BatchNorm2d(8),
             nn.MaxPool2d(2, 2), # 8 x 16 x 16
             nn.Conv2d(8, 16, kernel_size=3, stride=1, padding=1), # 16 x 16 x 16
             nn.ReLU(),
+            nn.BatchNorm2d(16),
             nn.MaxPool2d(2, 2), # 16 x 8 x 8
-            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1), # 32 x 16 x 16
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2), # 32 x 8 x 8
 
             nn.Flatten(), 
-            nn.Linear(32 * 8 * 8, 32 * 8),
+            nn.Linear(16 * 8 * 8, 16 * 8),
             nn.ReLU(),
-            nn.Linear(32 * 8, nOutput)
+            nn.Linear(16 * 8, nOutput)
         )
 
     def forward(self, x):
@@ -60,13 +60,12 @@ def main():
 
     nOutput = 5
     model =  NetUtility.to_optimal_device(NetCNN(nOutput))
-    num_epochs = 250
-    lr = 0.002
+    num_epochs = 25
+    lr = 0.05
 
     optimizer = torch.optim.SGD(model.parameters(), lr, momentum=0.9)
     scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, lr, steps_per_epoch=len(train_dl), epochs=num_epochs)
     history = model.fitData(num_epochs, train_dl, val_dl, optimizer, scheduler)
-    history = model.fitData(num_epochs, lr, train_dl, val_dl)
     NetUtility.show_loss_plot(history)
 
     model.getDatasetAccuracy(testset)

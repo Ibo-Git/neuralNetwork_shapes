@@ -120,8 +120,8 @@ class ImageClassificationBase(nn.Module):
     def validation_step(self, batch):
         images, labels = batch 
         out = self(images)                   
-        loss = F.cross_entropy(out, labels)  
-        acc = self.accuracy(out, labels)   
+        loss = F.cross_entropy(out, labels)
+        acc = self.accuracy(out, labels)
         return { 'val_loss': loss, 'val_acc': acc }
 
     def accuracy(self, outputs, labels):
@@ -139,6 +139,7 @@ class ImageClassificationBase(nn.Module):
             epoch, result['lrs'][-1], result['train_loss'], result['val_loss'], result['val_acc']))
 
     def fitData(self, epochs, train_dl, val_dl, optimizer, scheduler):
+        self.train()  # Set to eval mode to change behavior of Dropout, BatchNorm,
         train_losses = []
         lrs = []
         history = []
@@ -192,6 +193,7 @@ class ImageClassificationBase(nn.Module):
         print(", ".join(outputString))
 
     def getDatasetAccuracy(self, dataset):
+        self.eval()  # Set to eval mode to change behavior of Dropout, BatchNorm,
         classes = dataset.classes
         numCorrect = np.zeros(len(classes))
         numFalse = np.zeros(len(classes))
@@ -210,6 +212,8 @@ class ImageClassificationBase(nn.Module):
         for i in range(len(classes)):
             acc[i] = numCorrect[i]/(numCorrect[i]+numFalse[i])
             outputString.append(classes[i] + ": " + str(acc[i]))
+
+        outputString.append("total_avg: " + str(np.average(acc)))
 
         print(", ".join(outputString))
 
