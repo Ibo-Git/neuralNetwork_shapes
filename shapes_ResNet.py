@@ -60,7 +60,6 @@ class ResNet(ImageClassificationBase):
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
             nn.Linear(8, nOutput),
-            nn.Relu(),
         )
 
     def forward(self, x):
