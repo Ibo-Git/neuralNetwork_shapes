@@ -157,9 +157,9 @@ def main():
     lr = 0.0002
     d_optimizer = torch.optim.Adam(Discriminator.parameters(), lr)
     g_optimizer = torch.optim.Adam(Generator.parameters(), lr)
-    D = NetUtility.to_optimal_device(Discriminator())
-    G = NetUtility.to_optimal_device(Generator())
-    fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer, D, G)
+    d_model = NetUtility.to_optimal_device(Discriminator())
+    g_model = NetUtility.to_optimal_device(Generator())
+    fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer, d_model, g_model)
 
 
 if __name__ == '__main__':
