@@ -46,7 +46,7 @@ def createObject(width=10, height=10, color=255, shape="random", fillColor="rand
     return [img, shape]
 
 def drawEllipse(img, width, height, fillColor):
-    ellipseWidth = random.randint(math.floor(0.2*width), math.ceil(0.4*width))
+    ellipseWidth = random.randint(math.floor(0.3*width), math.ceil(0.45*width))
     ellipseHeight = random.randint(min(math.floor(0.2*height), math.floor(0.65*ellipseWidth)), min(math.floor(0.65*ellipseWidth), math.ceil(0.4*height)))
     center_pos = getRandomPos((width, height), (ellipseWidth, ellipseWidth))
     angle = random.randint(0, 360)
@@ -71,9 +71,9 @@ def drawPolygon(img, width, height, fillColor):
     end_point = [width, math.floor(m*(width-pos1[0])+pos1[1])]
 
     img2 = 255*np.ones((height,width), np.uint8)
-    cv.line(img2, start_point, end_point, 0, thickness=20)
+    cv.line(img2, start_point, end_point, 0, thickness=50)
     pos3 = getRandomPos((width, height), (0,0))
-    while img2[pos3[0],pos3[1]] == 0: pos3 = getRandomPos((width, height), (0,0))
+    while img2[pos3[1],pos3[0]] == 0: pos3 = getRandomPos((width, height), (0,0))
 
     pts = np.array([[pos1],[pos2],[pos3]], np.int32)
     pts = pts.reshape((-1,1,2))
@@ -127,12 +127,12 @@ def generateData(force = False):
             newPath = os.path.join(currentPath, targetPath)
             os.makedirs(targetPath, exist_ok=True)
 
-    dataset = [["train", 20000], ["test", 5000]]
+    dataset = [["train", 50000], ["test", 25000]]
     shapes = ["ellipse", "line", "polygon", "rectangle", "circle"]
     for set, number in dataset:
         for j in shapes:
             for i in range(0, int(number/len(shapes))):
-                [img, shape] = createObject(width=64, height=64, color=255, shape=j, fillColor=0)
+                [img, shape] = createObject(width=64, height=64, color=255, shape=j, fillColor="random")
                 filename = str("%0"+str(len(str(number)))+"d") % (i,)
                 path = os.path.join(currentPath, "data_shape", set, shape)
             
