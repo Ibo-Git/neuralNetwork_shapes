@@ -38,7 +38,7 @@ class Discriminator(nn.Module):
             nn.Conv2d(1, cOut, kernel_size=3, stride=2, padding=1), 
             nn.LeakyReLU(0.2, inplace=True),
             # 4 x 32 x 32
-            nn.Conv2d(cOut, cOut*2, kernel_size=3, stride=1, padding=1), 
+            nn.Conv2d(cOut, cOut*2, kernel_size=3, stride=2, padding=1), 
             nn.BatchNorm2d(cOut*2),
             nn.LeakyReLU(0.2, inplace=True),
             # 8 x 16 x 16
@@ -47,7 +47,7 @@ class Discriminator(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
             # 16 x 8 x 8
             nn.Conv2d(cOut*4, cOut*8, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(cOut*4),
+            nn.BatchNorm2d(cOut*8),
             nn.LeakyReLU(0.2, inplace=True),
             # 32 x 4 x 4
             nn.Conv2d(cOut*8, 1, kernel_size=4, stride=1, padding=0),
@@ -122,9 +122,9 @@ def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g
     total_step = len(data_loader)
     d_losses, g_losses, real_scores, fake_scores = [], [], [], []
 
-    for epoch in num_epochs:
+    for epoch in range(num_epochs):
         for i, (images, _) in enumerate(data_loader):
-            d_loss, real_score, fake_score = train_discriminator(images, batch_size, latent_size, d_optimizer, g_optimizer)
+            d_loss, real_score, fake_score = train_discriminator(images, batch_size, latent_size, d_optimizer, g_optimizer, D, G)
             g_loss, fake_images = train_generator(batch_size, latent_size, d_optimizer, g_optimizer, D, G)
             d_losses.append(d_loss)
             g_losses.append(g_loss)
@@ -155,10 +155,11 @@ def main():
     num_epochs = 10
     latent_size = 100
     lr = 0.0002
-    d_optimizer = torch.optim.Adam(Discriminator.parameters(), lr)
-    g_optimizer = torch.optim.Adam(Generator.parameters(), lr)
+    
     d_model = NetUtility.to_optimal_device(Discriminator())
-    g_model = NetUtility.to_optimal_device(Generator())
+    g_model = NetUtility.to_optimal_device(Generator(latent_size))
+    d_optimizer = torch.optim.Adam(d_model.parameters(), lr)
+    g_optimizer = torch.optim.Adam(g_model.parameters(), lr)
     fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer, d_model, g_model)
 
 

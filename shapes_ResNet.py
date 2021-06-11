@@ -59,7 +59,7 @@ class ResNet(ImageClassificationBase):
             nn.ReLU(),
             nn.AdaptiveAvgPool2d(1),
             nn.Flatten(),
-            nn.Linear(8, nOutput),
+            nn.Linear(32, nOutput),
         )
 
     def forward(self, x):
@@ -74,7 +74,7 @@ def main():
 
     nOutput = 5
     model =  NetUtility.to_optimal_device(ResNet(nOutput))
-    num_epochs = 75
+    num_epochs = 50
     lr = 0.05
 
     optimizer = torch.optim.SGD(model.parameters(), lr, momentum=0.9)
