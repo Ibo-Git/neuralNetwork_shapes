@@ -146,7 +146,7 @@ def save_fake_images(index, batch_size, latent_size, G, sample_dir='data_shape/s
     fake_images = fake_images.reshape(fake_images.size(0), 1, 64, 64)
     fake_fname = 'fake_images-{0:0=4d}.png'.format(index)
     print('Saving', fake_fname)
-    os.makedirs(sample_dir)
+    if not os.path.exists(sample_dir): os.makedirs(sample_dir)
     save_image((fake_images), os.path.join(sample_dir, fake_fname), nrow=10)
 
 def main():
