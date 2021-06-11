@@ -63,6 +63,9 @@ def main():
     num_epochs = 250
     lr = 0.002
 
+    optimizer = torch.optim.SGD(model.parameters(), lr, momentum=0.9)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, lr, steps_per_epoch=len(train_dl), epochs=num_epochs)
+    history = model.fitData(num_epochs, train_dl, val_dl, optimizer, scheduler)
     history = model.fitData(num_epochs, lr, train_dl, val_dl)
     NetUtility.show_loss_plot(history)
 
