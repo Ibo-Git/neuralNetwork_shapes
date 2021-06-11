@@ -60,7 +60,7 @@ def main():
 
     nOutput = 5
     model =  NetUtility.to_optimal_device(NetCNN(nOutput))
-    num_epochs = 25
+    num_epochs = 50
     lr = 0.05
 
     optimizer = torch.optim.SGD(model.parameters(), lr, momentum=0.9)
@@ -72,6 +72,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-#%%
-
-a = torch.tensor([])

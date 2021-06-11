@@ -74,7 +74,7 @@ def main():
 
     nOutput = 5
     model =  NetUtility.to_optimal_device(ResNet(nOutput))
-    num_epochs = 50
+    num_epochs = 75
     lr = 0.05
 
     optimizer = torch.optim.SGD(model.parameters(), lr, momentum=0.9)
