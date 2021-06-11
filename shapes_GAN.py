@@ -56,7 +56,7 @@ class Discriminator(nn.Module):
         )
 
     def forward(self, x):
-        self.net(x)
+        return self.net(x)
     
 class Generator(nn.Module):
     def __init__(self, cIn):
@@ -83,18 +83,20 @@ class Generator(nn.Module):
         )
 
     def forward(self, x):
-        self.net(x)
+        return self.net(x)
 
-def train_discriminator(images, batch_size, latent_size, d_optimizer, g_optimizer, D, G):
+def train_discriminator(images, latent_size, d_optimizer, g_optimizer, D, G):
     # loss for real image
     output = D(images)
-    real_loss = nn.BCELoss(output, 1) # is true image
+    batch_size = len(images)
+    loss = nn.BCELoss()
+    real_loss = loss(output, NetUtility.to_optimal_device(torch.ones([batch_size, 1, 1, 1]))) # is true image
     real_score = output
 
     # loss for fake image
-    fake_image = G(torch.randn(batch_size, latent_size))
-    output = D(fake_image)
-    fake_loss = nn.BCELoss(output, 0) # is fake image
+    fake_image = G(NetUtility.to_optimal_device(torch.randn(batch_size, latent_size, 1, 1)))
+    output = D(NetUtility.to_optimal_device(fake_image))
+    fake_loss = loss(output, NetUtility.to_optimal_device(torch.zeros([batch_size, 1, 1, 1]))) # is fake image
     fake_score = output
 
     # combine
@@ -108,8 +110,9 @@ def train_discriminator(images, batch_size, latent_size, d_optimizer, g_optimize
 
 def train_generator(batch_size, latent_size, d_optimizer, g_optimizer, D, G):
 
-    fake_image = G(torch.randn(batch_size, latent_size))
-    g_loss = nn.BCELoss(D(fake_image), 1)
+    fake_image = G(NetUtility.to_optimal_device(torch.randn(batch_size, latent_size, 1, 1)))
+    loss = nn.BCELoss()
+    g_loss = loss(D(fake_image), NetUtility.to_optimal_device((torch.ones([batch_size, 1, 1, 1]))))
     g_optimizer.zero_grad()
     d_optimizer.zero_grad()
     g_loss.backward()
@@ -124,26 +127,26 @@ def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g
 
     for epoch in range(num_epochs):
         for i, (images, _) in enumerate(data_loader):
-            d_loss, real_score, fake_score = train_discriminator(images, batch_size, latent_size, d_optimizer, g_optimizer, D, G)
+            d_loss, real_score, fake_score = train_discriminator(images, latent_size, d_optimizer, g_optimizer, D, G)
             g_loss, fake_images = train_generator(batch_size, latent_size, d_optimizer, g_optimizer, D, G)
             d_losses.append(d_loss)
             g_losses.append(g_loss)
             real_scores.append(real_score)
             fake_scores.append(fake_score)
 
-            if (i+1) % 200 == 0: # log every 200 steps from data_loader
+            if (i+1) % 200 == 0 or i + 1 == total_step: # log every 200 steps from data_loader
                 print('Epoch [{}/{}], Step [{}/{}], d_loss: {:.4f}, g_loss: {:.4f}, D(x): {:.2f}, D(G(z)): {:.2f}'
                     .format(epoch, num_epochs, i+1, total_step, d_loss.item(), g_loss.item(), 
                         real_score.mean().item(), fake_score.mean().item()))
 
-        save_fake_images(epoch+1, batch_size, latent_size)
+        save_fake_images(epoch+1, batch_size, latent_size, G)
 
-def save_fake_images(index, batch_size, latent_size, sample_dir='samples'):
-    fake_images = Generator(torch.randn(batch_size, latent_size))
+def save_fake_images(index, batch_size, latent_size, G, sample_dir='data_shape/samples'):
+    fake_images = G(NetUtility.to_optimal_device(torch.randn(batch_size, latent_size, 1, 1)))
     fake_images = fake_images.reshape(fake_images.size(0), 1, 64, 64)
     fake_fname = 'fake_images-{0:0=4d}.png'.format(index)
     print('Saving', fake_fname)
-    if not os.path.exists(sample_dir): os.makedirs(sample_dir)
+    os.makedirs(sample_dir)
     save_image((fake_images), os.path.join(sample_dir, fake_fname), nrow=10)
 
 def main():
@@ -152,7 +155,7 @@ def main():
     batch_size = 128
     data_loader = NetUtility.load_data(dataset, subset_configs = [{ "shuffle": True, "percentage": 1 }], batch_size = batch_size)
     
-    num_epochs = 10
+    num_epochs = 100
     latent_size = 100
     lr = 0.0002
     
