@@ -23,6 +23,7 @@ from torchvision import transforms as transforms
 from torchvision.datasets import MNIST, ImageFolder
 from torchvision.datasets.utils import download_url
 from torchvision.transforms import ToTensor
+from torchvision.transforms.transforms import LinearTransformation
 from torchvision.utils import make_grid, save_image
 
 from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
@@ -84,15 +85,15 @@ class Generator(nn.Module):
     def forward(self, x):
         self.net(x)
 
-def train_discriminator(images, batch_size, latent_size, d_optimizer, g_optimizer):
+def train_discriminator(images, batch_size, latent_size, d_optimizer, g_optimizer, D, G):
     # loss for real image
-    output = Discriminator(images)
+    output = D(images)
     real_loss = nn.BCELoss(output, 1) # is true image
     real_score = output
 
     # loss for fake image
-    fake_image = Generator(torch.randn(batch_size, latent_size))
-    output = Discriminator(fake_image)
+    fake_image = G(torch.randn(batch_size, latent_size))
+    output = D(fake_image)
     fake_loss = nn.BCELoss(output, 0) # is fake image
     fake_score = output
 
@@ -105,10 +106,10 @@ def train_discriminator(images, batch_size, latent_size, d_optimizer, g_optimize
 
     return d_loss, real_score, fake_score
 
-def train_generator(batch_size, latent_size, d_optimizer, g_optimizer):
+def train_generator(batch_size, latent_size, d_optimizer, g_optimizer, D, G):
 
-    fake_image = Generator(torch.randn(batch_size, latent_size))
-    g_loss = nn.BCELoss(Discriminator(fake_image), 1)
+    fake_image = G(torch.randn(batch_size, latent_size))
+    g_loss = nn.BCELoss(D(fake_image), 1)
     g_optimizer.zero_grad()
     d_optimizer.zero_grad()
     g_loss.backward()
@@ -116,7 +117,7 @@ def train_generator(batch_size, latent_size, d_optimizer, g_optimizer):
 
     return g_loss, fake_image
 
-def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer):
+def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer, D, G):
 
     total_step = len(data_loader)
     d_losses, g_losses, real_scores, fake_scores = [], [], [], []
@@ -124,7 +125,7 @@ def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g
     for epoch in num_epochs:
         for i, (images, _) in enumerate(data_loader):
             d_loss, real_score, fake_score = train_discriminator(images, batch_size, latent_size, d_optimizer, g_optimizer)
-            g_loss, fake_image = train_generator(batch_size, latent_size, d_optimizer, g_optimizer)
+            g_loss, fake_images = train_generator(batch_size, latent_size, d_optimizer, g_optimizer, D, G)
             d_losses.append(d_loss)
             g_losses.append(g_loss)
             real_scores.append(real_score)
@@ -148,15 +149,17 @@ def save_fake_images(index, batch_size, latent_size, sample_dir='samples'):
 def main():
     transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
     dataset = ImageFolder('./data_shape/train', transform=transform)
-  
-    num_epochs = 10
-    data_loader 
     batch_size = 128
+    data_loader = NetUtility.load_data(dataset, subset_configs = [{ "shuffle": True, "percentage": 1 }], batch_size = batch_size)
+    
+    num_epochs = 10
     latent_size = 100
     lr = 0.0002
     d_optimizer = torch.optim.Adam(Discriminator.parameters(), lr)
     g_optimizer = torch.optim.Adam(Generator.parameters(), lr)
-    fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer)
+    D = NetUtility.to_optimal_device(Discriminator())
+    G = NetUtility.to_optimal_device(Generator())
+    fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer, D, G)
 
 
 if __name__ == '__main__':
