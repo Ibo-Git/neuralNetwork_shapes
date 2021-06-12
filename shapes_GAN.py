@@ -165,7 +165,7 @@ def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g
     total_step = len(data_loader)
     d_losses, g_losses, real_scores, fake_scores = [], [], [], []
 
-    static_seed = NetUtility.to_optimal_device(torch.randn(batch_size, latent_size, 1, 1))
+    static_seed = NetUtility.to_optimal_device(torch.randn(64, latent_size, 1, 1))
 
     for epoch in range(num_epochs):
         for i, (images, _) in enumerate(data_loader):
@@ -206,13 +206,12 @@ def save_fake_images(index, batch_size, latent_size, G, static_seed, mean, std, 
     fake_fname = 'fake_images-{0:0=4d}.png'.format(index)
     print('Saving', fake_fname)
     if not os.path.exists(sample_dir): os.makedirs(sample_dir)
-    save_image((fake_images), os.path.join(sample_dir, fake_fname), nrow=10)    
+    save_image(denorm(fake_images, 0.5, 0.5), os.path.join(sample_dir, fake_fname), nrow=10)    
     #save_image(denorm(fake_images, mean, std), os.path.join(sample_dir, fake_fname), nrow=10)  
 
 def denorm(x, mean, std):
     out = (x + mean/std) * std
     return out.clamp(0, 1)
-
 
 def plot_multipleImages(dataset):
     images = torch.stack([image for image, _ in dataset])
@@ -222,22 +221,99 @@ def plot_multipleImages(dataset):
     plt.imshow(make_grid(images[nRand,:,:,:], nrow=10).permute((1, 2, 0)))
     plt.show()
    
-    
+def fitData_GAN_2(num_epochs, dataloader, batch_size, latent_size, optimizerD, optimizerG, netD, netG):
+    img_list = []
+    G_losses = []
+    D_losses = []
+    iters = 0
+    static_seed = NetUtility.to_optimal_device(torch.randn(64, latent_size, 1, 1))
+    criterion = nn.BCELoss()
+
+    # For each epoch
+    for epoch in range(num_epochs):
+        # For each batch in the dataloader
+        for i, (image, _) in enumerate(dataloader, 0):
+
+            ############################
+            # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
+            ###########################
+            ## Train with all-real batch
+            netD.zero_grad()
+            # Format batch
+            label = NetUtility.to_optimal_device(torch.ones(batch_size).view(-1))
+            # Forward pass real batch through D
+            output = netD(image).view(-1)
+            # Calculate loss on all-real batch
+            errD_real = criterion(output, label)
+            # Calculate gradients for D in backward pass
+            errD_real.backward()
+            D_x = output.mean().item()
+
+            ## Train with all-fake batch
+            # Generate batch of latent vectors
+            noise = NetUtility.to_optimal_device(torch.randn(batch_size, latent_size, 1, 1))
+            # Generate fake image batch with G
+            fake = netG(noise)
+            label.fill_(0) # fake label
+            # Classify all fake batch with D
+            output = netD(NetUtility.to_optimal_device(fake)).view(-1)
+            # Calculate D's loss on the all-fake batch
+            errD_fake = criterion(output, label)
+            # Calculate the gradients for this batch, accumulated (summed) with previous gradients
+            errD_fake.backward()
+            D_G_z1 = output.mean().item()
+            # Compute error of D as sum over the fake and the real batches
+            errD = errD_real + errD_fake
+            # Update D
+            optimizerD.step()
+
+            ############################
+            # (2) Update G network: maximize log(D(G(z)))
+            ###########################
+            netG.zero_grad()
+            label.fill_(1)  # fake labels are real for generator cost
+            # Since we just updated D, perform another forward pass of all-fake batch through D
+            output = netD(NetUtility.to_optimal_device(fake.detach())).view(-1)
+            # Calculate G's loss based on this output
+            errG = criterion(output, label)
+            # Calculate gradients for G
+            errG.backward()
+            D_G_z2 = output.mean().item()
+            # Update G
+            optimizerG.step()
+
+            # Output training stats
+            if i % 50 == 0:
+                print('[%d/%d][%d/%d]\tLoss_D: %.4f\tLoss_G: %.4f\tD(x): %.4f\tD(G(z)): %.4f / %.4f'
+                    % (epoch, num_epochs, i, len(dataloader),
+                        errD.item(), errG.item(), D_x, D_G_z1, D_G_z2))
+
+            # Save Losses for plotting later
+            G_losses.append(errG.item())
+            D_losses.append(errD.item())
+
+            # Check how the generator is doing by saving G's output on fixed_noise
+            if (iters % 500 == 0) or ((epoch == num_epochs-1) and (i == len(dataloader)-1)):
+                with torch.no_grad():
+                    fake = netG(static_seed).detach().cpu()
+                img_list.append(torchvision.utils.make_grid(fake, padding=2, normalize=True))
+
+            iters += 1    
+
 
 #%%
 def main():
-    transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
+    #transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
+    mean = 0.5
+    std = 0.5
+    transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor(), transforms.Normalize((mean, ), (std, ))])
     dataset = ImageFolder('./data_shape/train', transform=transform)
     #images = torch.stack([image for image, labels in dataset])
     #mean = torch.mean(images).item()
     #std = torch.std(images).item()
-    mean = 0.5
-    std = 0.5
-    #transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor(), transforms.Normalize((mean, ), (std, ))])
-    dataset = ImageFolder('./data_shape/train', transform=transform)
-
+    
     batch_size = 100
-    data_loader = NetUtility.load_data(dataset, subset_configs = [{ "shuffle": True, "percentage": 1 }], batch_size = batch_size)
+    dataloader = NetUtility.load_data(dataset, subset_configs = [{ "shuffle": True, "percentage": 1 }], batch_size = batch_size)
     
     num_epochs = 100
     latent_size = 100
@@ -251,7 +327,8 @@ def main():
 
     d_optimizer = torch.optim.Adam(d_model.parameters(), lr, betas=(0.5, 0.999))
     g_optimizer = torch.optim.Adam(g_model.parameters(), lr, betas=(0.5, 0.999))
-    fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer, d_model, g_model, mean, std)
+    #fitData_GAN(num_epochs, dataloader, batch_size, latent_size, d_optimizer, g_optimizer, d_model, g_model, mean, std)
+    fitData_GAN_2(num_epochs, dataloader, batch_size, latent_size, d_optimizer, g_optimizer, d_model, g_model)
 
 
 if __name__ == '__main__':
