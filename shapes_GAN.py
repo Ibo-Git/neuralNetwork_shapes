@@ -197,6 +197,17 @@ def denorm(x, mean, std):
     return out.clamp(0, 1)
 
 
+def plot_multipleImages(dataset):
+    images = torch.stack([image for image, _ in dataset])
+    plt.figure(figsize=(10,10))
+    plt.axis('off')
+    nRand = random.sample(range(1, len(dataset)), 100)
+    plt.imshow(make_grid(images[nRand,:,:,:], nrow=10).permute((1, 2, 0)))
+    plt.show()
+   
+    
+
+#%%
 def main():
     transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
     dataset = ImageFolder('./data_shape/train', transform=transform)
