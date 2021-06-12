@@ -70,91 +70,67 @@ class Generator(nn.Module):
     def __init__(self, cIn):
         super(Generator, self).__init__()
         cOut = 64
-        self.test1 = nn.Sequential(nn.ConvTranspose2d(cIn, cOut*8, kernel_size=2, stride=2, padding=0),
+        # output_size = (inp-1)*str-2*pad+(ker-1)+1
+        self.net2 = nn.Sequential(
+            # input: cInx1x1
+            nn.ConvTranspose2d(cIn, cOut*8, kernel_size=2, stride=2, padding=0),
             nn.BatchNorm2d(cOut*8),
-            nn.ReLU()) # 512x2x2
-        
-        self.test2 = nn.Sequential(nn.ConvTranspose2d(cOut*8, cOut * 4, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(), 
+            # 512x2x2
+            nn.ConvTranspose2d(cOut*8, cOut * 4, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(cOut * 4),
-            nn.ReLU()) # 256x4x4
-
-        self.test3 = nn.Sequential(nn.ConvTranspose2d(cOut * 4, cOut * 2, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(), 
+            # 256x4x4
+            nn.ConvTranspose2d(cOut * 4, cOut * 2, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(cOut * 2),
-            nn.ReLU()) # 128x8x8
-
-        self.test4 = nn.Sequential(nn.ConvTranspose2d(cOut * 2, cOut, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(), 
+            # 128x8x8
+            nn.ConvTranspose2d(cOut * 2, cOut, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(cOut),
-            nn.ReLU()) # 64x16x16
-
-        self.test5 = nn.Sequential(nn.ConvTranspose2d(cOut, cOut // 2, kernel_size=4, stride=2, padding=1),
+            nn.ReLU(), 
+            # 64x16x16
+            nn.ConvTranspose2d(cOut, cOut // 2, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(cOut // 2),
-            nn.ReLU()) # 32x32x32
-
-        self.test6 = nn.Sequential(nn.ConvTranspose2d(cOut // 2, 1, kernel_size=4, stride=2, padding=1), 
-            nn.Sigmoid()) # 1x64x64
+            nn.ReLU(), 
+            # 32x32x32
+            nn.ConvTranspose2d(cOut // 2, 1, kernel_size=4, stride=2, padding=1), 
+            nn.Tanh()
+            # 1x64x64
+        ) 
 
         self.net = nn.Sequential(
             # input: cIn x 1 x 1
-            nn.ConvTranspose2d(cIn, cOut*4, kernel_size=2, stride=0, padding=0),
+            nn.ConvTranspose2d(cIn, cOut*8, kernel_size=4, stride=1, padding=0),
+            nn.BatchNorm2d(cOut*8),
+            nn.ReLU(),
+            # 512 x 4 x 4
+            nn.ConvTranspose2d(cOut*8, cOut*4, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(cOut*4),
             nn.ReLU(),
-            # 512 x 2 x 2
+            # 256 x 8 x8 
             nn.ConvTranspose2d(cOut*4, cOut*2, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(cOut*2),
             nn.ReLU(),
-            # 256 x 4 x 4
-            nn.ConvTranspose2d(cOut*2, cOut, kernel_size=4, stride=1, padding=1),
+            # 128 x 16 x 16
+            nn.ConvTranspose2d(cOut*2, cOut, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(cOut),
             nn.ReLU(),
-            # 128 x 8 x 8
-            nn.ConvTranspose2d(cOut, cOut // 2, kernel_size=4, stride=1, padding=1),
-            nn.BatchNorm2d(cOut // 2),
-            nn.ReLU(),
-            # 64 x 16 x 16
-            nn.ConvTranspose2d(cOut // 2, cOut // 4, kernel_size=4, stride=1, padding=1),
-            nn.BatchNorm2d(cOut // 4),
-            nn.ReLU(),
             # 32 x 32 x 32
-            nn.ConvTranspose2d(cOut // 4, 1, kernel_size=2, stride=2, padding=1),
-            nn.Sigmoid()
-            # (inp-1)*str-2*pad+(ker-1)+1
+            nn.ConvTranspose2d(cOut, 1, kernel_size=4, stride=2, padding=1),
+            nn.Tanh()
             # output: 1 x 64 x 64
-
-            ## input: cIn x 1 x 1
-            #nn.ConvTranspose2d(cIn, cOut*4, kernel_size=4, stride=1, padding=0),
-            #nn.BatchNorm2d(cOut*4),
-            #nn.ReLU(),
-            ## 512 x 4 x 4
-            #nn.ConvTranspose2d(cOut*4, cOut*2, kernel_size=4, stride=2, padding=1),
-            #nn.BatchNorm2d(cOut*2),
-            #nn.ReLU(),
-            ## 256 x 8 x 8
-            #nn.ConvTranspose2d(cOut*2, cOut, kernel_size=4, stride=2, padding=1),
-            #nn.BatchNorm2d(cOut),
-            #nn.ReLU(),
-            ## 128 x 16 x 16
-            #nn.ConvTranspose2d(cOut, 1, kernel_size=4, stride=4, padding=0),
-            #nn.Sigmoid()
-            ## (inp-1)*str-2*pad+(ker-1)+1
-            ## output: 1 x 64 x 64
         )
 
     def forward(self, x):
-        x = self.test1(x)
-        x = self.test2(x)
-        x = self.test3(x)
-        x = self.test4(x)
-        x = self.test5(x)
-        x = self.test6(x)
-        return x
+
         return self.net(x)
 
-def train_discriminator(images, latent_size, d_optimizer, g_optimizer, D, G):
+def train_discriminator(images, latent_size, d_optimizer, g_optimizer, D, G, epoch):
     # loss for real image
     output = D(images)
     batch_size = len(images)
     loss = nn.BCELoss()
-    real_loss = loss(output, NetUtility.to_optimal_device(torch.ones([batch_size, 1, 1, 1]))) # is true image
+    real_loss = loss(output, NetUtility.to_optimal_device(random.uniform(-0.3, 0.3)/epoch+torch.ones([batch_size, 1, 1, 1]))) # is true image
     real_score = output
 
     # loss for fake image
@@ -193,14 +169,15 @@ def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g
 
     for epoch in range(num_epochs):
         for i, (images, _) in enumerate(data_loader):
-            d_loss, real_score, fake_score = train_discriminator(images, latent_size, d_optimizer, g_optimizer, D, G)
+            d_loss, real_score, fake_score = train_discriminator(images, latent_size, d_optimizer, g_optimizer, D, G, epoch)
             g_loss, fake_images = train_generator(batch_size, latent_size, d_optimizer, g_optimizer, D, G)
-            d_losses.append(d_loss)
-            g_losses.append(g_loss)
-            real_scores.append(real_score)
-            fake_scores.append(fake_score)
+
 
             if (i+1) % 200 == 0 or i + 1 == total_step: # log every 200 steps from data_loader
+                d_losses.append(d_loss.item())
+                g_losses.append(g_loss.item())
+                real_scores.append(real_score.mean.item())
+                fake_scores.append(fake_score.mean().item())
                 print('Epoch [{}/{}], Step [{}/{}], d_loss: {:.4f}, g_loss: {:.4f}, D(x): {:.2f}, D(G(z)): {:.2f}'
                     .format(epoch + 1, num_epochs, i+1, total_step, d_loss.item(), g_loss.item(), 
                         real_score.mean().item(), fake_score.mean().item()))
@@ -213,11 +190,12 @@ def save_fake_images(index, batch_size, latent_size, G, static_seed, mean, std, 
     fake_fname = 'fake_images-{0:0=4d}.png'.format(index)
     print('Saving', fake_fname)
     if not os.path.exists(sample_dir): os.makedirs(sample_dir)
-    save_image(denorm(fake_images, mean, std), os.path.join(sample_dir, fake_fname), nrow=10)
+    save_image((fake_images), os.path.join(sample_dir, fake_fname), nrow=10)
 
 def denorm(x, mean, std):
     out = (x + mean/std) * std
     return out.clamp(0, 1)
+
 
 def main():
     transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
@@ -225,10 +203,10 @@ def main():
     images = torch.stack([image for image, labels in dataset])
     mean = torch.mean(images).item()
     std = torch.std(images).item()
-    transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor(), transforms.Normalize((mean, ), (std, ))])
-    dataset = ImageFolder('./data_shape/train', transform=transform)
+    #transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor(), transforms.Normalize((mean, ), (std, ))])
+    #dataset = ImageFolder('./data_shape/train', transform=transform)
 
-    batch_size = 128
+    batch_size = 100
     data_loader = NetUtility.load_data(dataset, subset_configs = [{ "shuffle": True, "percentage": 1 }], batch_size = batch_size)
     
     num_epochs = 100
@@ -248,3 +226,4 @@ def main():
 
 if __name__ == '__main__':
     main()
+
