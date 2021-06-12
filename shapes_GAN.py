@@ -130,7 +130,7 @@ def train_discriminator(images, latent_size, d_optimizer, g_optimizer, D, G, epo
     output = D(images)
     batch_size = len(images)
     loss = nn.BCELoss()
-    real_loss = loss(output, NetUtility.to_optimal_device(random.uniform(-0.3, 0.3)/epoch+torch.ones([batch_size, 1, 1, 1]))) # is true image
+    real_loss = loss(output, (NetUtility.to_optimal_device(random.uniform(-0.3, 0.3) / (epoch + 1) + torch.ones([batch_size, 1, 1, 1])))) # is true image
     real_score = output
 
     # loss for fake image
@@ -176,13 +176,29 @@ def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g
             if (i+1) % 200 == 0 or i + 1 == total_step: # log every 200 steps from data_loader
                 d_losses.append(d_loss.item())
                 g_losses.append(g_loss.item())
-                real_scores.append(real_score.mean.item())
+                real_scores.append(real_score.mean().item())
                 fake_scores.append(fake_score.mean().item())
                 print('Epoch [{}/{}], Step [{}/{}], d_loss: {:.4f}, g_loss: {:.4f}, D(x): {:.2f}, D(G(z)): {:.2f}'
                     .format(epoch + 1, num_epochs, i+1, total_step, d_loss.item(), g_loss.item(), 
                         real_score.mean().item(), fake_score.mean().item()))
 
-        save_fake_images(epoch+1, batch_size, latent_size, G, static_seed, mean , std)
+        save_fake_images(epoch+1, batch_size, latent_size, G, static_seed, mean, std)
+
+    plt.figure(figsize=(10,5))
+    plt.plot(d_losses, '-')
+    plt.plot(g_losses, '-')
+    plt.xlabel('epoch')
+    plt.ylabel('loss')
+    plt.legend(['Discriminator', 'Generator'])
+    plt.title('Losses')
+    plt.show()
+
+    plt.plot(real_scores, '-')
+    plt.plot(fake_scores, '-')
+    plt.xlabel('epoch')
+    plt.ylabel('score')
+    plt.legend(['Real Score', 'Fake score'])
+    plt.title('Scores')
 
 def save_fake_images(index, batch_size, latent_size, G, static_seed, mean, std, sample_dir='data_shape/samples'):
     fake_images = G(static_seed)
@@ -190,7 +206,8 @@ def save_fake_images(index, batch_size, latent_size, G, static_seed, mean, std, 
     fake_fname = 'fake_images-{0:0=4d}.png'.format(index)
     print('Saving', fake_fname)
     if not os.path.exists(sample_dir): os.makedirs(sample_dir)
-    save_image((fake_images), os.path.join(sample_dir, fake_fname), nrow=10)
+    save_image((fake_images), os.path.join(sample_dir, fake_fname), nrow=10)    
+    #save_image(denorm(fake_images, mean, std), os.path.join(sample_dir, fake_fname), nrow=10)  
 
 def denorm(x, mean, std):
     out = (x + mean/std) * std
@@ -211,11 +228,13 @@ def plot_multipleImages(dataset):
 def main():
     transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
     dataset = ImageFolder('./data_shape/train', transform=transform)
-    images = torch.stack([image for image, labels in dataset])
-    mean = torch.mean(images).item()
-    std = torch.std(images).item()
+    #images = torch.stack([image for image, labels in dataset])
+    #mean = torch.mean(images).item()
+    #std = torch.std(images).item()
+    mean = 0.5
+    std = 0.5
     #transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor(), transforms.Normalize((mean, ), (std, ))])
-    #dataset = ImageFolder('./data_shape/train', transform=transform)
+    dataset = ImageFolder('./data_shape/train', transform=transform)
 
     batch_size = 100
     data_loader = NetUtility.load_data(dataset, subset_configs = [{ "shuffle": True, "percentage": 1 }], batch_size = batch_size)
