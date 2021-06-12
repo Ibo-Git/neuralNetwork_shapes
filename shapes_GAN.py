@@ -184,7 +184,7 @@ def train_generator(batch_size, latent_size, d_optimizer, g_optimizer, D, G):
 
     return g_loss, fake_image
 
-def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer, D, G):
+def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer, D, G, mean , std):
 
     total_step = len(data_loader)
     d_losses, g_losses, real_scores, fake_scores = [], [], [], []
@@ -205,19 +205,29 @@ def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g
                     .format(epoch + 1, num_epochs, i+1, total_step, d_loss.item(), g_loss.item(), 
                         real_score.mean().item(), fake_score.mean().item()))
 
-        save_fake_images(epoch+1, batch_size, latent_size, G, static_seed)
+        save_fake_images(epoch+1, batch_size, latent_size, G, static_seed, mean , std)
 
-def save_fake_images(index, batch_size, latent_size, G, static_seed, sample_dir='data_shape/samples'):
+def save_fake_images(index, batch_size, latent_size, G, static_seed, mean, std, sample_dir='data_shape/samples'):
     fake_images = G(static_seed)
     fake_images = fake_images.reshape(fake_images.size(0), 1, 64, 64)
     fake_fname = 'fake_images-{0:0=4d}.png'.format(index)
     print('Saving', fake_fname)
     if not os.path.exists(sample_dir): os.makedirs(sample_dir)
-    save_image((fake_images), os.path.join(sample_dir, fake_fname), nrow=10)
+    save_image(denorm(fake_images, mean, std), os.path.join(sample_dir, fake_fname), nrow=10)
+
+def denorm(x, mean, std):
+    out = (x + mean/std) * std
+    return out.clamp(0, 1)
 
 def main():
     transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
     dataset = ImageFolder('./data_shape/train', transform=transform)
+    images = torch.stack([image for image, labels in dataset])
+    mean = torch.mean(images).item()
+    std = torch.std(images).item()
+    transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor(), transforms.Normalize((mean, ), (std, ))])
+    dataset = ImageFolder('./data_shape/train', transform=transform)
+
     batch_size = 128
     data_loader = NetUtility.load_data(dataset, subset_configs = [{ "shuffle": True, "percentage": 1 }], batch_size = batch_size)
     
@@ -233,9 +243,8 @@ def main():
 
     d_optimizer = torch.optim.Adam(d_model.parameters(), lr, betas=(0.5, 0.999))
     g_optimizer = torch.optim.Adam(g_model.parameters(), lr, betas=(0.5, 0.999))
-    fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer, d_model, g_model)
+    fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer, d_model, g_model, mean, std)
 
 
 if __name__ == '__main__':
     main()
-
