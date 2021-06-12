@@ -28,6 +28,14 @@ from torchvision.utils import make_grid, save_image
 
 from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
 
+# custom weights initialization called on netG and netD
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        nn.init.normal_(m.weight.data, 0.0, 0.02)
+    elif classname.find('BatchNorm') != -1:
+        nn.init.normal_(m.weight.data, 1.0, 0.02)
+        nn.init.constant_(m.bias.data, 0)
 
 class Discriminator(nn.Module):
     def __init__(self):
@@ -62,27 +70,83 @@ class Generator(nn.Module):
     def __init__(self, cIn):
         super(Generator, self).__init__()
         cOut = 64
+        self.test1 = nn.Sequential(nn.ConvTranspose2d(cIn, cOut*8, kernel_size=2, stride=2, padding=0),
+            nn.BatchNorm2d(cOut*8),
+            nn.ReLU()) # 512x2x2
+        
+        self.test2 = nn.Sequential(nn.ConvTranspose2d(cOut*8, cOut * 4, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(cOut * 4),
+            nn.ReLU()) # 256x4x4
+
+        self.test3 = nn.Sequential(nn.ConvTranspose2d(cOut * 4, cOut * 2, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(cOut * 2),
+            nn.ReLU()) # 128x8x8
+
+        self.test4 = nn.Sequential(nn.ConvTranspose2d(cOut * 2, cOut, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(cOut),
+            nn.ReLU()) # 64x16x16
+
+        self.test5 = nn.Sequential(nn.ConvTranspose2d(cOut, cOut // 2, kernel_size=4, stride=2, padding=1),
+            nn.BatchNorm2d(cOut // 2),
+            nn.ReLU()) # 32x32x32
+
+        self.test6 = nn.Sequential(nn.ConvTranspose2d(cOut // 2, 1, kernel_size=4, stride=2, padding=1), 
+            nn.Sigmoid()) # 1x64x64
+
         self.net = nn.Sequential(
             # input: cIn x 1 x 1
-            nn.ConvTranspose2d(cIn, cOut*4, kernel_size=4, stride=1, padding=0),
+            nn.ConvTranspose2d(cIn, cOut*4, kernel_size=2, stride=0, padding=0),
             nn.BatchNorm2d(cOut*4),
             nn.ReLU(),
-            # 512 x 4 x 4
+            # 512 x 2 x 2
             nn.ConvTranspose2d(cOut*4, cOut*2, kernel_size=4, stride=2, padding=1),
             nn.BatchNorm2d(cOut*2),
             nn.ReLU(),
-            # 256 x 8 x 8
-            nn.ConvTranspose2d(cOut*2, cOut, kernel_size=4, stride=2, padding=1),
+            # 256 x 4 x 4
+            nn.ConvTranspose2d(cOut*2, cOut, kernel_size=4, stride=1, padding=1),
             nn.BatchNorm2d(cOut),
             nn.ReLU(),
-            # 128 x 16 x 16
-            nn.ConvTranspose2d(cOut, 1, kernel_size=4, stride=4, padding=0),
+            # 128 x 8 x 8
+            nn.ConvTranspose2d(cOut, cOut // 2, kernel_size=4, stride=1, padding=1),
+            nn.BatchNorm2d(cOut // 2),
+            nn.ReLU(),
+            # 64 x 16 x 16
+            nn.ConvTranspose2d(cOut // 2, cOut // 4, kernel_size=4, stride=1, padding=1),
+            nn.BatchNorm2d(cOut // 4),
+            nn.ReLU(),
+            # 32 x 32 x 32
+            nn.ConvTranspose2d(cOut // 4, 1, kernel_size=2, stride=2, padding=1),
             nn.Sigmoid()
             # (inp-1)*str-2*pad+(ker-1)+1
             # output: 1 x 64 x 64
+
+            ## input: cIn x 1 x 1
+            #nn.ConvTranspose2d(cIn, cOut*4, kernel_size=4, stride=1, padding=0),
+            #nn.BatchNorm2d(cOut*4),
+            #nn.ReLU(),
+            ## 512 x 4 x 4
+            #nn.ConvTranspose2d(cOut*4, cOut*2, kernel_size=4, stride=2, padding=1),
+            #nn.BatchNorm2d(cOut*2),
+            #nn.ReLU(),
+            ## 256 x 8 x 8
+            #nn.ConvTranspose2d(cOut*2, cOut, kernel_size=4, stride=2, padding=1),
+            #nn.BatchNorm2d(cOut),
+            #nn.ReLU(),
+            ## 128 x 16 x 16
+            #nn.ConvTranspose2d(cOut, 1, kernel_size=4, stride=4, padding=0),
+            #nn.Sigmoid()
+            ## (inp-1)*str-2*pad+(ker-1)+1
+            ## output: 1 x 64 x 64
         )
 
     def forward(self, x):
+        x = self.test1(x)
+        x = self.test2(x)
+        x = self.test3(x)
+        x = self.test4(x)
+        x = self.test5(x)
+        x = self.test6(x)
+        return x
         return self.net(x)
 
 def train_discriminator(images, latent_size, d_optimizer, g_optimizer, D, G):
@@ -125,6 +189,8 @@ def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g
     total_step = len(data_loader)
     d_losses, g_losses, real_scores, fake_scores = [], [], [], []
 
+    static_seed = NetUtility.to_optimal_device(torch.randn(batch_size, latent_size, 1, 1))
+
     for epoch in range(num_epochs):
         for i, (images, _) in enumerate(data_loader):
             d_loss, real_score, fake_score = train_discriminator(images, latent_size, d_optimizer, g_optimizer, D, G)
@@ -136,13 +202,13 @@ def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g
 
             if (i+1) % 200 == 0 or i + 1 == total_step: # log every 200 steps from data_loader
                 print('Epoch [{}/{}], Step [{}/{}], d_loss: {:.4f}, g_loss: {:.4f}, D(x): {:.2f}, D(G(z)): {:.2f}'
-                    .format(epoch, num_epochs, i+1, total_step, d_loss.item(), g_loss.item(), 
+                    .format(epoch + 1, num_epochs, i+1, total_step, d_loss.item(), g_loss.item(), 
                         real_score.mean().item(), fake_score.mean().item()))
 
-        save_fake_images(epoch+1, batch_size, latent_size, G)
+        save_fake_images(epoch+1, batch_size, latent_size, G, static_seed)
 
-def save_fake_images(index, batch_size, latent_size, G, sample_dir='data_shape/samples'):
-    fake_images = G(NetUtility.to_optimal_device(torch.randn(batch_size, latent_size, 1, 1)))
+def save_fake_images(index, batch_size, latent_size, G, static_seed, sample_dir='data_shape/samples'):
+    fake_images = G(static_seed)
     fake_images = fake_images.reshape(fake_images.size(0), 1, 64, 64)
     fake_fname = 'fake_images-{0:0=4d}.png'.format(index)
     print('Saving', fake_fname)
@@ -161,8 +227,12 @@ def main():
     
     d_model = NetUtility.to_optimal_device(Discriminator())
     g_model = NetUtility.to_optimal_device(Generator(latent_size))
-    d_optimizer = torch.optim.Adam(d_model.parameters(), lr)
-    g_optimizer = torch.optim.Adam(g_model.parameters(), lr)
+
+    d_model.apply(weights_init)
+    g_model.apply(weights_init)
+
+    d_optimizer = torch.optim.Adam(d_model.parameters(), lr, betas=(0.5, 0.999))
+    g_optimizer = torch.optim.Adam(g_model.parameters(), lr, betas=(0.5, 0.999))
     fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer, d_model, g_model)
 
 
