@@ -24,14 +24,14 @@ dataroot = "data"
 workers = 4
 
 # Batch size during training
-batch_size = 128
+batch_size = 100
 
 # Spatial size of training images. All images will be resized to this
 #   size using a transformer.
 image_size = 64
 
 # Number of channels in the training images. For color images this is 3
-nc = 3
+nc = 1
 
 # Size of z latent vector (i.e. size of generator input)
 nz = 100
@@ -66,12 +66,11 @@ def main():
 
     # We can use an image folder dataset the way we have it setup.
     # Create the dataset
-    dataset = dset.ImageFolder(root=dataroot,
+    dataset = dset.ImageFolder('./data_shape/train',
                             transform=transforms.Compose([
-                                transforms.Resize(image_size),
-                                transforms.CenterCrop(image_size),
+                                transforms.Grayscale(),
                                 transforms.ToTensor(),
-                                transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+                                transforms.Normalize((0.5,), (0.5, )),
                             ]))
     # Create the dataloader
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size,
