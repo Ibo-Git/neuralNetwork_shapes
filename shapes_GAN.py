@@ -160,20 +160,20 @@ def train_generator(batch_size, latent_size, d_optimizer, g_optimizer, D, G):
 
     return g_loss, fake_image
 
-def fitData_GAN(num_epochs, data_loader, batch_size, latent_size, d_optimizer, g_optimizer, D, G, mean , std):
+def fitData_GAN(num_epochs, dataloader, batch_size, latent_size, d_optimizer, g_optimizer, D, G, mean , std):
 
-    total_step = len(data_loader)
+    total_step = len(dataloader)
     d_losses, g_losses, real_scores, fake_scores = [], [], [], []
 
     static_seed = NetUtility.to_optimal_device(torch.randn(64, latent_size, 1, 1))
 
     for epoch in range(num_epochs):
-        for i, (images, _) in enumerate(data_loader):
+        for i, (images, _) in enumerate(dataloader):
             d_loss, real_score, fake_score = train_discriminator(images, latent_size, d_optimizer, g_optimizer, D, G, epoch)
             g_loss, fake_images = train_generator(batch_size, latent_size, d_optimizer, g_optimizer, D, G)
 
 
-            if (i+1) % 200 == 0 or i + 1 == total_step: # log every 200 steps from data_loader
+            if (i+1) % 200 == 0 or i + 1 == total_step: # log every 200 steps from dataloader
                 d_losses.append(d_loss.item())
                 g_losses.append(g_loss.item())
                 real_scores.append(real_score.mean().item())
@@ -207,7 +207,7 @@ def save_fake_images(index, batch_size, latent_size, G, static_seed, mean, std, 
     print('Saving', fake_fname)
     if not os.path.exists(sample_dir): os.makedirs(sample_dir)
     save_image(denorm(fake_images, 0.5, 0.5), os.path.join(sample_dir, fake_fname), nrow=10)    
-    #save_image(denorm(fake_images, mean, std), os.path.join(sample_dir, fake_fname), nrow=10)  
+    #save_image(fake_images, os.path.join(sample_dir, fake_fname), nrow=10)  
 
 def denorm(x, mean, std):
     out = (x + mean/std) * std
@@ -240,7 +240,7 @@ def fitData_GAN_2(num_epochs, dataloader, batch_size, latent_size, optimizerD, o
             ## Train with all-real batch
             netD.zero_grad()
             # Format batch
-            label = NetUtility.to_optimal_device(torch.ones(batch_size).view(-1))
+            label = NetUtility.to_optimal_device((random.uniform(-0.3, 0.3) / (epoch + 1) + torch.ones(batch_size)).view(-1))
             # Forward pass real batch through D
             output = netD(image).view(-1)
             # Calculate loss on all-real batch
@@ -256,7 +256,7 @@ def fitData_GAN_2(num_epochs, dataloader, batch_size, latent_size, optimizerD, o
             fake = netG(noise)
             label.fill_(0) # fake label
             # Classify all fake batch with D
-            output = netD(NetUtility.to_optimal_device(fake)).view(-1)
+            output = netD(NetUtility.to_optimal_device(fake.detach())).view(-1)
             # Calculate D's loss on the all-fake batch
             errD_fake = criterion(output, label)
             # Calculate the gradients for this batch, accumulated (summed) with previous gradients
@@ -301,7 +301,6 @@ def fitData_GAN_2(num_epochs, dataloader, batch_size, latent_size, optimizerD, o
             iters += 1    
 
 
-#%%
 def main():
     #transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor()])
     mean = 0.5
