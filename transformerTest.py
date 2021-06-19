@@ -34,12 +34,12 @@ from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
 
 
 class modelTransformer(nn.Module):
-    def __init__(self, src_vocab_size, embedding_size, tgt_vocab_size):
+    def __init__(self, src_vocab_size, embedding_size, tgt_vocab_size, device):
         self.embedding_size = embedding_size
         super(modelTransformer, self).__init__()
         self.embedding = nn.Embedding(src_vocab_size, embedding_size)
         self.positional_encoding = PositionalEncoding(embedding_size)
-        self.tgt_mask = nn.Transformer.generate_square_subsequent_mask(self, sz = 6)
+        self.tgt_mask = nn.Transformer.generate_square_subsequent_mask(self, sz = 6).to(device)
         self.transformer = nn.Transformer(embedding_size, nhead=2, num_encoder_layers=2, num_decoder_layers=2, dropout=0)
         self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
         self.softmax = nn.Softmax(dim=2)
@@ -115,7 +115,7 @@ class UtilityRNN():
         key_list = list(vocab)
         return [key_list[index] for index in indices]
 
-def TrainingLoop(num_epochs, model, optimizer, batches, targets, exp_outputs, vocab):
+def TrainingLoop(num_epochs, model, optimizer, batches, targets, exp_outputs, vocab, device):
     model.train()
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
     for epoch in range(num_epochs):
@@ -125,7 +125,7 @@ def TrainingLoop(num_epochs, model, optimizer, batches, targets, exp_outputs, vo
             exp_output = exp_outputs[numBatch]
             output = model(input, target)
             output = output.reshape(-1, len(vocab))
-            exp_output = UtilityRNN.encodeTarget(exp_output, vocab) 
+            exp_output = UtilityRNN.encodeTarget(exp_output, vocab).to(device)
             loss = training_loss(output, exp_output)          
             loss.backward()
             optimizer.step()
@@ -161,9 +161,12 @@ def main():
     src_vocab_size = len(vocab)
     tgt_vocab_size = len(vocab)
     num_epochs = 100 
-    model = modelTransformer(src_vocab_size, embedding_size, tgt_vocab_size).to(device)
+    model = modelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, device).to(device)
     optimizer = torch.optim.SGD(model.parameters(), lr = 5)
-    TrainingLoop(num_epochs, model, optimizer, batches, targets, exp_outputs, vocab)
+    batches = batches.to(device)
+    targets = targets.to(device)
+    exp_outputs = exp_outputs.to(device)
+    TrainingLoop(num_epochs, model, optimizer, batches, targets, exp_outputs, vocab, device)
 
 if __name__ == '__main__':
     main()
