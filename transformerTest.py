@@ -6,8 +6,10 @@ import random
 import string
 import tarfile
 from multiprocessing import Process, freeze_support
+from typing import Sequence
 from IPython.lib.display import ScribdDocument
 import copy
+import itertools
 
 import cv2 as cv
 import matplotlib
@@ -34,27 +36,29 @@ from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
 
 
 class modelTransformer(nn.Module):
-    def __init__(self, src_vocab_size, embedding_size, tgt_vocab_size, device):
+    def __init__(self, src_vocab_size, embedding_size, tgt_vocab_size, tgt_seq_len, device):
         self.embedding_size = embedding_size
         super(modelTransformer, self).__init__()
         self.embedding = nn.Embedding(src_vocab_size, embedding_size)
         self.positional_encoding = PositionalEncoding(embedding_size)
-        self.tgt_mask = nn.Transformer.generate_square_subsequent_mask(self, sz = 6).to(device)
-        self.transformer = nn.Transformer(embedding_size, nhead=2, num_encoder_layers=2, num_decoder_layers=2, dropout=0)
+        self.tgt_mask = nn.Transformer.generate_square_subsequent_mask(self, sz = tgt_seq_len).to(device)
+        self.transformer = nn.Transformer(embedding_size, nhead=2, num_encoder_layers=2, num_decoder_layers=2, dropout=0.2)
         self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
         self.softmax = nn.Softmax(dim=2)
 
     def forward(self, src, tgt):
         src = self.embedding(src)
         tgt = self.embedding(tgt)
-        src = src.reshape(-1, 1, self.embedding_size)
-        tgt = tgt.reshape(-1, 1, self.embedding_size)
+        #src = src.reshape(-1, 1, self.embedding_size)
+        #tgt = tgt.reshape(-1, 1, self.embedding_size)
+        src = src.permute(1, 0, 2)
+        tgt = tgt.permute(1, 0, 2)
         #src = self.positional_encoding(src)
         #tgt = self.positional_encoding(tgt)
-        src = self.transformer(src, tgt, tgt_mask = self.tgt_mask)
-        src = self.fc_out(src)
-        src = self.softmax(src)
-        return src
+        out = self.transformer(src, tgt, tgt_mask = self.tgt_mask)
+        out = self.fc_out(out)
+        out = self.softmax(out)
+        return out
 
 
 class PositionalEncoding(nn.Module):
@@ -88,13 +92,19 @@ class UtilityRNN():
         for word in uniqueWords: vocab[word] = len(vocab)
         return vocab
     
-    def get_batch(text, batch_size):
-        numBatch = len(text.split()) // batch_size
-        text = np.array(text.split(" "))
-        batches = text[0:numBatch*batch_size].reshape(-1, batch_size)
-        return batches
+    #def get_batch(text, batch_size):
+    #    numBatch = len(text.split()) // batch_size
+    #    text = np.array(text.split(" "))
+    #    batches = text[0:numBatch*batch_size].reshape(-1, batch_size)
+    #    return batches
     
-    def encodeText(batches, vocab, lookUpTable):
+    def get_batch(text, batch_size, sequence_length, numBatch):
+        text = list(text.split(" "))
+        text_to_split = text[numBatch*batch_size*sequence_length:(numBatch+1)*batch_size*sequence_length]
+        batch = np.reshape(text_to_split, (batch_size, sequence_length))
+        return batch
+
+    def encodeText(batches, vocab, lookUpTable, device):
         idx_targets = [[lookUpTable.index(i) for i in batch] for batch in batches]
         targets = [[lookUpTable[x+1 if x != len(lookUpTable)-1 else 0] for x in target ] for target in idx_targets]
         batches = [[vocab[word] for word in batch] for batch in batches]
@@ -103,45 +113,72 @@ class UtilityRNN():
         for i in range(len(exp_outputs)): 
             exp_outputs[i].append(vocab['<EOS>'])
             targets[i].insert(0,vocab['<SOS>'])
-        return torch.tensor(batches), torch.tensor(targets), torch.tensor(exp_outputs)
+        return torch.tensor(batches).to(device), torch.tensor(targets).to(device), torch.tensor(exp_outputs).to(device)
 
     def encodeTarget(vector, vocab):
-        encodedVec = torch.zeros(len(vector), len(vocab))
-        for i in range(len(vector)): encodedVec[i][vector[i]] = 1
+        # check dimensions of vector
+        if len(vector.shape) == 2: encodedVec = torch.zeros(vector.shape[1], vector.shape[0], len(vocab))
+        elif len(vector.shape) == 1: encodedVec = torch.zeros(vector.shape[1], 1, len(vocab))
+
+        vector = vector.permute(1, 0)
+        for batch in range(vector.shape[1]):
+            for entry in range(vector.shape[0]): 
+                encodedVec[entry][batch][vector[entry][batch]] = 1
+        
         return encodedVec
 
     def decodeChar(vector, vocab):
-        indices = torch.argmax(vector, 1)
+        indices = torch.argmax(vector, 2)
         key_list = list(vocab)
-        return [key_list[index] for index in indices]
+        decodedVec = [[key_list[index] for index in batch] for batch in indices]
+        decodedVec = np.reshape(decodedVec, (indices.shape[0], indices.shape[1])).T
+        return decodedVec
 
-def TrainingLoop(num_epochs, model, optimizer, batches, targets, exp_outputs, vocab, device):
+
+
+def TrainingLoop(num_epochs, model, optimizer, text, vocab, lookUpTable, seq_len, batch_size, device):
     model.train()
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
     for epoch in range(num_epochs):
-        for numBatch in range(len(batches)):
-            input = batches[numBatch]
-            target = targets[numBatch]
-            exp_output = exp_outputs[numBatch]
+        numBatch_max = (len(text.split()) // (seq_len*batch_size))-1
+        for numBatch in range(0, numBatch_max):
+            
+            batch = UtilityRNN.get_batch(text, batch_size, seq_len, numBatch)
+            input, target, exp_output = UtilityRNN.encodeText(batch, vocab, lookUpTable, device)
+
             output = model(input, target)
-            output = output.reshape(-1, len(vocab))
+            #output = output.reshape(-1, len(vocab))
+
             exp_output = UtilityRNN.encodeTarget(exp_output, vocab).to(device)
             loss = training_loss(output, exp_output)          
             loss.backward()
             optimizer.step()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.zero_grad()
-            scheduler.step()
+            #scheduler.step()
 
-            if numBatch % 25 == 0:
+            if numBatch % 100 == 0:
                 expOutputChar = UtilityRNN.decodeChar(exp_output, vocab)
                 outputChar = UtilityRNN.decodeChar(output, vocab)
-                print('Epoch:{}, Batch number: {}, Expected Output: {}, Output: {}, Loss: {}'.format(epoch, numBatch, expOutputChar, outputChar, loss))
+                print('Epoch:{}, Batch number: {}, Expected Output: {}, Output: {}, Loss: {}'.format(epoch, numBatch, expOutputChar[:][0], outputChar[:][0], loss))
 
-def training_loss(output, target):
+def training_loss(output, exp_output):
     criterion = nn.BCELoss()
-    loss = criterion(output, target)
+    loss = criterion(output, exp_output)
     return loss         
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def main():
@@ -154,19 +191,18 @@ def main():
     lookUpTable = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t",  "u", "v", "w", "x", "y", "z"]
     uniqueWords = UtilityRNN.getUniqueWords(text)
     vocab = UtilityRNN.assignIndex(uniqueWords)
-    batches = UtilityRNN.get_batch(text, 5)
-    batches, targets, exp_outputs = UtilityRNN.encodeText(batches, vocab, lookUpTable)
 
-    embedding_size = 30
+
+    embedding_size = 64
     src_vocab_size = len(vocab)
     tgt_vocab_size = len(vocab)
-    num_epochs = 100 
-    model = modelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, device).to(device)
-    optimizer = torch.optim.SGD(model.parameters(), lr = 5)
-    batches = batches.to(device)
-    targets = targets.to(device)
-    exp_outputs = exp_outputs.to(device)
-    TrainingLoop(num_epochs, model, optimizer, batches, targets, exp_outputs, vocab, device)
+    num_epochs = 100
+    seq_len = 3
+    batch_size = 3
+    model = modelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, seq_len+1, device).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr = 0.0002)
+ 
+    TrainingLoop(num_epochs, model, optimizer, text, vocab, lookUpTable, seq_len, batch_size, device)
 
 if __name__ == '__main__':
     main()
