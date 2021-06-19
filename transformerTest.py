@@ -3,6 +3,7 @@ import math
 import os
 import pathlib
 import random
+import string
 import tarfile
 from multiprocessing import Process, freeze_support
 from IPython.lib.display import ScribdDocument
@@ -32,24 +33,31 @@ from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
 
 
 class modelTransformer(nn.Module):
-    def __init__(self, src_vocab_size, embedding_size, trg_vocab_size):
+    def __init__(self, src_vocab_size, embedding_size, tgt_vocab_size):
+        self.embedding_size = embedding_size
         super(modelTransformer, self).__init__()
-        self.src_word_embedding = nn.Embedding(src_vocab_size, embedding_size),
-        self.positional_encoding = PositionalEncoding(d_model=embedding_size),
-        self.transformer = nn.Transformer(d_model = embedding_size),
-        self.fc_out = nn.Linear(embedding_size, trg_vocab_size),
+        self.embedding = nn.Embedding(src_vocab_size, embedding_size)
+        self.positional_encoding = PositionalEncoding(embedding_size)
+        self.transformer = nn.Transformer(embedding_size, nhead=2, num_encoder_layers=2, num_decoder_layers=2)
+        self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
+        self.softmax = nn.Softmax()
 
-    def forward(self, x):
-        x = self.src_word_embedding(x)
-        x = self.positional_encoding(x)
-        x = self.transformer(x)
-        x = self.fc_out(x)
-        return x
+    def forward(self, src, tgt):
+        src = self.embedding(src)
+        tgt = self.embedding(tgt)
+        src = src.reshape(-1, 1, self.embedding_size)
+        tgt = tgt.reshape(-1, 1, self.embedding_size)
+        #src = self.positional_encoding(src)
+        #tgt = self.positional_encoding(tgt)
+        src = self.transformer(src, tgt)
+        src = self.fc_out(src)
+        src = self.softmax(src)
+        return src
 
 
 class PositionalEncoding(nn.Module):
 
-    def __init__(self, d_model, dropout=0.1, max_len=5000):
+    def __init__(self, d_model, dropout=0.2, max_len=5000):
         super(PositionalEncoding, self).__init__()
         self.dropout = nn.Dropout(p = dropout)
 
@@ -74,51 +82,87 @@ class UtilityRNN():
         return uniqueWords
 
     def assignIndex(uniqueWords):
-        word2index = {'<PAD>': 0, '<UNK>': 1, '<SOS>': 2, '<EOS>': 3}
-        for word in uniqueWords: word2index[word] = len(word2index)
-        return word2index
+        vocab = {}#{'<PAD>': 0, '<UNK>': 1, '<SOS>': 2, '<EOS>': 3}
+        for word in uniqueWords: vocab[word] = len(vocab)
+        return vocab
     
-    def encodeText(text, word2index, batch_size):
-        batches = np.array(text.split(" ")).reshape(-1, batch_size)
-        if math.floor(len(text.split())/batch_size) < len(batches): batches = batches[0:-1]
-        return [[word2index[word] for word in batch] for batch in batches]
+    def get_batch(text, batch_size):
+        numBatch = len(text.split()) // batch_size
+        text = np.array(text.split(" "))
+        batches = text[0:numBatch*batch_size].reshape(-1, batch_size)
+        return batches
+    
+    def encodeText(batches, vocab, lookUpTable):
+        idx_targets = [[lookUpTable.index(i) for i in batch] for batch in batches]
+        targets = [[lookUpTable[x+1 if x != len(lookUpTable)-1 else 0] for x in target ] for target in idx_targets]
+        batches = [[vocab[word] for word in batch] for batch in batches]
+        targets = [[vocab[word] for word in target] for target in targets]
+        return torch.LongTensor(batches), torch.LongTensor(targets)
 
-def TrainingLoop(num_epochs, model, optimizer, text, batches, trg_vocab_size):
+    def encodeTarget(vector, vocab):
+        encodedVec = torch.zeros(len(vector), len(vocab))
+        for i in range(len(vector)): encodedVec[i][vector[i]] = 1
+        return encodedVec
+
+    def decodeChar(vector, vocab):
+        indices = torch.argmax(vector, 1)
+        key_list = list(vocab)
+        return [key_list[index] for index in indices]
+
+def TrainingLoop(num_epochs, model, optimizer, batches, targets, vocab):
+    model.train()
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
     for epoch in range(num_epochs):
         for numBatch in range(len(batches)):
             input = batches[numBatch]
-            output = model(input)
-            loss = training_step(input, output, text, trg_vocab_size) 
+            target = targets[numBatch]
+            output = model(input, target)
+            output = output.reshape(-1, len(vocab))
+
+            input = UtilityRNN.encodeTarget(input, vocab)
+            inputChar = UtilityRNN.decodeChar(input, vocab)
+
+            target = UtilityRNN.encodeTarget(target, vocab) 
+
+            targetChar = UtilityRNN.decodeChar(target, vocab)
+            outputChar = UtilityRNN.decodeChar(output, vocab)
+
+            loss = training_loss(output, target)          
             loss.backward()
             optimizer.step()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.zero_grad()
-            print('Epoch:{}, Batch number: {}'.format(epoch, numBatch))
+            scheduler.step()
 
-def training_step(input, output, text, trg_vocab_size):
-    index = text.find(input)
-    exp_output = np.zeros(len(trg_vocab_size))
-    exp_output[index+1] = 1
-    criterion = nn.CrossEntropyLoss()
-    loss = criterion(output, exp_output) 
-    return loss
+            if numBatch % 25 == 0:
+                print('Epoch:{}, Batch number: {}, Target: {}, Output: {}, Loss: {}'.format(epoch, numBatch, targetChar, outputChar, loss))
+
+def training_loss(output, target):
+    criterion = nn.BCELoss()
+    loss = criterion(output, target)
+    return loss         
+
 
 def main():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     #with open ("textfiles/data.txt", "r") as text:
     #    text=text.read().replace('\n', '')
-    
-    text = "a b c d e f g h i j k l m n o p q r s t u v w x y z"
+    text = [random. choice(string.ascii_letters) for i in range(50000)]
+    text = ' '.join(text).lower()
+    lookUpTable = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t",  "u", "v", "w", "x", "y", "z"]
     uniqueWords = UtilityRNN.getUniqueWords(text)
-    word2index = UtilityRNN.assignIndex(uniqueWords)
-    batches = UtilityRNN.encodeText(text, word2index, 2)
+    vocab = UtilityRNN.assignIndex(uniqueWords)
+    batches = UtilityRNN.get_batch(text, 5)
+    batches, targets = UtilityRNN.encodeText(batches, vocab, lookUpTable)
 
-    embedding_size = 20
-    src_vocab_size = len(word2index)
-    trg_vocab_size = len(word2index)
-    num_epochs = 20 
-    model = modelTransformer(src_vocab_size, embedding_size, trg_vocab_size)
-    optimizer = torch.optim.adam(model.parameters(), lr = 0.005)
-    TrainingLoop(num_epochs, model, optimizer, text, batches, trg_vocab_size)
+    embedding_size = 30
+    src_vocab_size = len(vocab)
+    tgt_vocab_size = len(vocab)
+    num_epochs = 100 
+    model = modelTransformer(src_vocab_size, embedding_size, tgt_vocab_size).to(device)
+    optimizer = torch.optim.SGD(model.parameters(), lr = 5)
+    TrainingLoop(num_epochs, model, optimizer, batches, targets, vocab)
 
 if __name__ == '__main__':
     main()
