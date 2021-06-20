@@ -42,7 +42,7 @@ class modelTransformer(nn.Module):
         self.embedding = nn.Embedding(src_vocab_size, embedding_size)
         self.positional_encoding = PositionalEncoding(embedding_size)
         self.tgt_mask = nn.Transformer.generate_square_subsequent_mask(self, sz = tgt_seq_len).to(device)
-        self.transformer = nn.Transformer(embedding_size, nhead=2, num_encoder_layers=2, num_decoder_layers=2, dropout=0.2)
+        self.transformer = nn.Transformer(embedding_size, nhead=4, num_encoder_layers=1, num_decoder_layers=1, dropout=0)
         self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
         self.softmax = nn.Softmax(dim=2)
 
@@ -141,6 +141,7 @@ def TrainingLoop(num_epochs, model, optimizer, text, vocab, lookUpTable, seq_len
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
     for epoch in range(num_epochs):
         numBatch_max = (len(text.split()) // (seq_len*batch_size))-1
+        accuracies = []
         for numBatch in range(0, numBatch_max):
             
             batch = UtilityRNN.get_batch(text, batch_size, seq_len, numBatch)
@@ -156,11 +157,15 @@ def TrainingLoop(num_epochs, model, optimizer, text, vocab, lookUpTable, seq_len
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.zero_grad()
             #scheduler.step()
+            if epoch % 9 == 0:
+                output_max = torch.argmax(output, 2)
+                exp_output_max = torch.argmax(exp_output, 2)
+                accuracies.append(np.average(np.average([[1 if exp_output_max[i][j].tolist() == y.tolist() else 0 for j, y in enumerate(x)] for i, x in enumerate(output_max)], 0)))
 
             if numBatch % 100 == 0:
                 expOutputChar = UtilityRNN.decodeChar(exp_output, vocab)
                 outputChar = UtilityRNN.decodeChar(output, vocab)
-                print('Epoch:{}, Batch number: {}, Expected Output: {}, Output: {}, Loss: {}'.format(epoch, numBatch, expOutputChar[:][0], outputChar[:][0], loss))
+                print('Epoch:{}, Batch number: {}, Expected Output: {}, Output: {}, Loss: {}, Accuracy: {}'.format(epoch, numBatch, expOutputChar[:][0], outputChar[:][0], loss, np.average(accuracies)))
 
 def training_loss(output, exp_output):
     criterion = nn.BCELoss()
@@ -170,6 +175,28 @@ def training_loss(output, exp_output):
 
 
 
+
+from os import listdir
+from os.path import isfile, join
+import shutil
+import re
+
+def prep_dataset():    
+    current_path = pathlib.Path().absolute()
+    files_names = os.listdir(os.path.join(current_path, 'trump\\originals'))
+
+    if os.path.exists(os.path.join(current_path, 'trump\\prepared')):
+        shutil.rmtree(os.path.join(current_path, 'trump\\prepared'))
+        os.mkdir(os.path.join(current_path, 'trump\\prepared'))
+
+    for i, file_name in enumerate(files_names):
+        with open(os.path.join(current_path, 'trump\\originals', file_name), 'r', encoding="UTF-8") as file:
+            data = file.read()
+            data_segments = [x.strip() for x in re.findall(r'.*?(?=[\.\?\!])."?', data)]
+            for j, data_segment in enumerate(data_segments):
+                with open(os.path.join(current_path, 'trump\\prepared', str(i) + '_' + str(j) + '_' + file_name), "wt") as segment_file:
+                    segment_file.write(data_segment)
+            
 
 
 
@@ -182,6 +209,7 @@ def training_loss(output, exp_output):
 
 
 def main():
+    #prep_dataset()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     #with open ("textfiles/data.txt", "r") as text:
@@ -193,12 +221,12 @@ def main():
     vocab = UtilityRNN.assignIndex(uniqueWords)
 
 
-    embedding_size = 64
+    embedding_size = 128
     src_vocab_size = len(vocab)
     tgt_vocab_size = len(vocab)
     num_epochs = 100
-    seq_len = 3
-    batch_size = 3
+    seq_len = 5
+    batch_size = 128
     model = modelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, seq_len+1, device).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr = 0.0002)
  
