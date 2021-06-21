@@ -115,7 +115,7 @@ class UtilityRNN():
         text = re.sub('([.,!?"()])', r' \1 ', text)
         text = re.sub('\s{2,}', ' ', text)
         text = re.sub(r'([0-9]{1}) . ([0-9]{1})', r'\1.\2', text)
-        text = list(text.split(" "))
+        text = list(text.split())
         return text
 
     def get_batch(text, encIn_seq_len, decIn_seq_len, batch_size, numBatch):
@@ -166,11 +166,11 @@ class UtilityRNN():
 
 
 
-def TrainingLoop(num_epochs, model, optimizer, text, vocab, lookUpTable, encIn_seq_len, decIn_seq_len, batch_size, device):
+def TrainingLoop(num_epochs, model, optimizer, text, vocab, encIn_seq_len, decIn_seq_len, batch_size, device):
     model.train()
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
     for epoch in range(num_epochs):
-        numBatch_max = (len(text) // (encIn_seq_len*batch_size))-1
+        numBatch_max = (len(text) // ((encIn_seq_len+decIn_seq_len)*batch_size))-1
         accuracies = []
         for numBatch in range(0, numBatch_max):
             input, target = UtilityRNN.get_batch(text, encIn_seq_len, decIn_seq_len, batch_size, numBatch)
@@ -179,13 +179,13 @@ def TrainingLoop(num_epochs, model, optimizer, text, vocab, lookUpTable, encIn_s
             output = model(input, target)
             #output = output.reshape(-1, len(vocab))
 
-            exp_output = UtilityRNN.encodeTarget(exp_output, vocab).to(device)
             loss = training_loss(output, exp_output)          
             loss.backward()
             optimizer.step()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
             optimizer.zero_grad()
             #scheduler.step()
+            exp_output = UtilityRNN.encodeTarget(exp_output, vocab).to(device)
             if epoch % 9 == 0:
                 output_max = torch.argmax(output, 2)
                 exp_output_max = torch.argmax(exp_output, 2)
@@ -197,8 +197,8 @@ def TrainingLoop(num_epochs, model, optimizer, text, vocab, lookUpTable, encIn_s
                 print('Epoch:{}, Batch number: {}, Expected Output: {}, Output: {}, Loss: {}, Accuracy: {}'.format(epoch, numBatch, expOutputChar[:][0], outputChar[:][0], loss, np.average(accuracies)))
 
 def training_loss(output, exp_output):
-    criterion = nn.BCELoss()
-    loss = criterion(output, exp_output)
+    criterion = nn.CrossEntropyLoss()
+    loss = criterion(output.view(-1, output.shape[2]), exp_output.reshape(-1))
     return loss         
 
 
@@ -255,7 +255,7 @@ def main():
     text = read_dataset()
     #text = [random. choice(string.ascii_letters) for i in range(50000)]
     #text = ' '.join(text).lower()
-    lookUpTable = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t",  "u", "v", "w", "x", "y", "z"]
+    #lookUpTable = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t",  "u", "v", "w", "x", "y", "z"]
     uniqueWords = UtilityRNN.getUniqueWords(text)
     vocab = UtilityRNN.assignIndex(uniqueWords)
     text = UtilityRNN.splitText(text)
@@ -271,7 +271,7 @@ def main():
     model = modelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, decIn_seq_len+1, device).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr = 0.0002)
  
-    TrainingLoop(num_epochs, model, optimizer, text, vocab, lookUpTable, encIn_seq_len, decIn_seq_len, batch_size, device)
+    TrainingLoop(num_epochs, model, optimizer, text, vocab, encIn_seq_len, decIn_seq_len, batch_size, device)
 
 if __name__ == '__main__':
     main()
