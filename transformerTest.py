@@ -43,7 +43,7 @@ class modelTransformer(nn.Module):
         self.embedding = nn.Embedding(src_vocab_size, embedding_size)
         self.positional_encoding = PositionalEncoding(embedding_size)
         self.tgt_mask = nn.Transformer.generate_square_subsequent_mask(self, sz = tgt_seq_len).to(device)
-        self.transformer = nn.Transformer(embedding_size, nhead=4, num_encoder_layers=1, num_decoder_layers=1, dropout=0)
+        self.transformer = nn.Transformer(embedding_size, nhead=8, num_encoder_layers=3, num_decoder_layers=3, dropout=0.1)
         self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
         self.softmax = nn.Softmax(dim=2)
 
@@ -186,7 +186,7 @@ def TrainingLoop(num_epochs, model, optimizer, text, vocab, encIn_seq_len, decIn
             optimizer.zero_grad()
             #scheduler.step()
             exp_output = UtilityRNN.encodeTarget(exp_output, vocab).to(device)
-            if epoch % 9 == 0:
+            if epoch % 1 == 0:
                 output_max = torch.argmax(output, 2)
                 exp_output_max = torch.argmax(exp_output, 2)
                 accuracies.append(np.average(np.average([[1 if exp_output_max[i][j].tolist() == y.tolist() else 0 for j, y in enumerate(x)] for i, x in enumerate(output_max)], 0)))
@@ -248,7 +248,7 @@ def read_dataset():
 
 
 
-def main():
+def main(): 
     #prep_dataset()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -261,15 +261,15 @@ def main():
     text = UtilityRNN.splitText(text)
 
 
-    embedding_size = 128
+    embedding_size = 512
     src_vocab_size = len(vocab)
     tgt_vocab_size = len(vocab)
     num_epochs = 100
-    encIn_seq_len = 5
-    decIn_seq_len = 5
+    encIn_seq_len = 10
+    decIn_seq_len = 25
     batch_size = 128
     model = modelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, decIn_seq_len+1, device).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr = 0.0002)
+    optimizer = torch.optim.Adam(model.parameters(), lr = 0.0005)
  
     TrainingLoop(num_epochs, model, optimizer, text, vocab, encIn_seq_len, decIn_seq_len, batch_size, device)
 
