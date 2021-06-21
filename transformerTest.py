@@ -1,15 +1,15 @@
 #%%
+import copy
+import itertools
 import math
 import os
 import pathlib
 import random
+import re
 import string
 import tarfile
 from multiprocessing import Process, freeze_support
 from typing import Sequence
-from IPython.lib.display import ScribdDocument
-import copy
-import itertools
 
 import cv2 as cv
 import matplotlib
@@ -20,6 +20,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchvision
 from IPython.display import Image
+from IPython.lib.display import ScribdDocument
 from torch import optim
 from torch.nn.modules.batchnorm import BatchNorm2d
 from torch.optim import optimizer
@@ -83,6 +84,9 @@ class PositionalEncoding(nn.Module):
 class UtilityRNN():
     def getUniqueWords(text):
         uniqueWords = []
+        text = re.sub('([.,!?"()])', r' \1 ', text)
+        text = re.sub('\s{2,}', ' ', text)
+        text = re.sub(r'([0-9]{1}) . ([0-9]{1})', r'\1.\2', text)
         for word in text.split():
             if word not in uniqueWords: uniqueWords.append(word)
         return uniqueWords
@@ -98,22 +102,48 @@ class UtilityRNN():
     #    batches = text[0:numBatch*batch_size].reshape(-1, batch_size)
     #    return batches
     
-    def get_batch(text, batch_size, sequence_length, numBatch):
-        text = list(text.split(" "))
-        text_to_split = text[numBatch*batch_size*sequence_length:(numBatch+1)*batch_size*sequence_length]
-        batch = np.reshape(text_to_split, (batch_size, sequence_length))
-        return batch
+    #def get_batch(text, batch_size, sequence_length, numBatch):
+    #    text = re.sub('([.,!?"()])', r' \1 ', text)
+    #    text = re.sub('\s{2,}', ' ', text)
+    #    text = re.sub(r'([0-9]{1}) . ([0-9]{1})', r'\1.\2', text)
+    #    text = list(text.split(" "))
+    #    text_to_split = text[numBatch*batch_size*sequence_length:(numBatch+1)*batch_size*sequence_length]
+    #    batch = np.reshape(text_to_split, (batch_size, sequence_length))
+    #    return batch
 
-    def encodeText(batches, vocab, lookUpTable, device):
-        idx_targets = [[lookUpTable.index(i) for i in batch] for batch in batches]
-        targets = [[lookUpTable[x+1 if x != len(lookUpTable)-1 else 0] for x in target ] for target in idx_targets]
-        batches = [[vocab[word] for word in batch] for batch in batches]
-        targets = [[vocab[word] for word in target] for target in targets]
-        exp_outputs = copy.deepcopy(targets)
+    def splitText(text):
+        text = re.sub('([.,!?"()])', r' \1 ', text)
+        text = re.sub('\s{2,}', ' ', text)
+        text = re.sub(r'([0-9]{1}) . ([0-9]{1})', r'\1.\2', text)
+        text = list(text.split(" "))
+        return text
+
+    def get_batch(text, encIn_seq_len, decIn_seq_len, batch_size, numBatch):
+        text_to_split = text[numBatch*batch_size*(encIn_seq_len+decIn_seq_len):(numBatch+1)*batch_size*(encIn_seq_len+decIn_seq_len)]
+        encIn = []
+        decIn = []
+        for i in range(batch_size):
+            startIdx_enc = i * (encIn_seq_len + decIn_seq_len)
+            endIdx_enc = startIdx_enc + encIn_seq_len
+            endIdx_dec = endIdx_enc + decIn_seq_len
+
+            temp_encIn = text_to_split[startIdx_enc:endIdx_enc]
+            temp_decIn = text_to_split[endIdx_enc:endIdx_dec]
+            encIn.append(temp_encIn)
+            decIn.append(temp_decIn)
+
+        return encIn, decIn
+
+    def encodeBatch(encIn, decIn, vocab, device):
+        enc_input = [[vocab[word] for word in seq] for seq in encIn]
+        dec_input = [[vocab[word] for word in seq] for seq in decIn]
+        exp_outputs = copy.deepcopy(dec_input)
         for i in range(len(exp_outputs)): 
             exp_outputs[i].append(vocab['<EOS>'])
-            targets[i].insert(0,vocab['<SOS>'])
-        return torch.tensor(batches).to(device), torch.tensor(targets).to(device), torch.tensor(exp_outputs).to(device)
+            dec_input[i].insert(0,vocab['<SOS>'])
+        return torch.tensor(enc_input).to(device), torch.tensor(dec_input).to(device), torch.tensor(exp_outputs).to(device)
+
+        
 
     def encodeTarget(vector, vocab):
         # check dimensions of vector
@@ -136,16 +166,15 @@ class UtilityRNN():
 
 
 
-def TrainingLoop(num_epochs, model, optimizer, text, vocab, lookUpTable, seq_len, batch_size, device):
+def TrainingLoop(num_epochs, model, optimizer, text, vocab, lookUpTable, encIn_seq_len, decIn_seq_len, batch_size, device):
     model.train()
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
     for epoch in range(num_epochs):
-        numBatch_max = (len(text.split()) // (seq_len*batch_size))-1
+        numBatch_max = (len(text) // (encIn_seq_len*batch_size))-1
         accuracies = []
         for numBatch in range(0, numBatch_max):
-            
-            batch = UtilityRNN.get_batch(text, batch_size, seq_len, numBatch)
-            input, target, exp_output = UtilityRNN.encodeText(batch, vocab, lookUpTable, device)
+            input, target = UtilityRNN.get_batch(text, encIn_seq_len, decIn_seq_len, batch_size, numBatch)
+            input, target, exp_output = UtilityRNN.encodeBatch(input, target, vocab, device)
 
             output = model(input, target)
             #output = output.reshape(-1, len(vocab))
@@ -176,10 +205,11 @@ def training_loss(output, exp_output):
 
 
 
+import re
+import shutil
 from os import listdir
 from os.path import isfile, join
-import shutil
-import re
+
 
 def prep_dataset():    
     current_path = pathlib.Path().absolute()
@@ -187,7 +217,8 @@ def prep_dataset():
 
     if os.path.exists(os.path.join(current_path, 'trump\\prepared')):
         shutil.rmtree(os.path.join(current_path, 'trump\\prepared'))
-        os.mkdir(os.path.join(current_path, 'trump\\prepared'))
+    
+    os.mkdir(os.path.join(current_path, 'trump\\prepared'))
 
     for i, file_name in enumerate(files_names):
         with open(os.path.join(current_path, 'trump\\originals', file_name), 'r', encoding="UTF-8") as file:
@@ -198,8 +229,17 @@ def prep_dataset():
                     segment_file.write(data_segment)
             
 
-
-
+def read_dataset():
+    current_path = pathlib.Path().absolute()
+    files_names = os.listdir(os.path.join(current_path, 'trump\\originals'))
+    file_all = []
+    for file_name in files_names:
+        with open(os.path.join(current_path, 'trump\\originals', file_name), 'r', encoding="UTF-8") as file:
+            file = file.read().replace('\n', '')
+        file_all.append(file)
+    
+    file_all = ''.join(file_all)
+    return file_all
 
 
 
@@ -212,25 +252,26 @@ def main():
     #prep_dataset()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    #with open ("textfiles/data.txt", "r") as text:
-    #    text=text.read().replace('\n', '')
-    text = [random. choice(string.ascii_letters) for i in range(50000)]
-    text = ' '.join(text).lower()
+    text = read_dataset()
+    #text = [random. choice(string.ascii_letters) for i in range(50000)]
+    #text = ' '.join(text).lower()
     lookUpTable = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s", "t",  "u", "v", "w", "x", "y", "z"]
     uniqueWords = UtilityRNN.getUniqueWords(text)
     vocab = UtilityRNN.assignIndex(uniqueWords)
+    text = UtilityRNN.splitText(text)
 
 
     embedding_size = 128
     src_vocab_size = len(vocab)
     tgt_vocab_size = len(vocab)
     num_epochs = 100
-    seq_len = 5
+    encIn_seq_len = 5
+    decIn_seq_len = 5
     batch_size = 128
-    model = modelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, seq_len+1, device).to(device)
+    model = modelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, decIn_seq_len+1, device).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr = 0.0002)
  
-    TrainingLoop(num_epochs, model, optimizer, text, vocab, lookUpTable, seq_len, batch_size, device)
+    TrainingLoop(num_epochs, model, optimizer, text, vocab, lookUpTable, encIn_seq_len, decIn_seq_len, batch_size, device)
 
 if __name__ == '__main__':
     main()
