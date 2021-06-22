@@ -88,8 +88,26 @@ class NetUtility():
 
         plt.subplots_adjust(left  = 0.125, right = 0.9, bottom = 0.1, top = 0.9, wspace = 0.2, hspace = 0.6)
         plt.show()
-
             
+
+    def saveModel(saveName, model, optimizer):
+        state = {
+            'model': model.state_dict(),
+            'optimizer': optimizer.state_dict()
+        }
+        current_path = pathlib.Path().absolute()
+        model_save_path = os.path.join(current_path, saveName+'.pth')
+        torch.save(state, model_save_path)
+
+
+    def loadModel(modelName, model, lr):
+        state = torch.load(os.path.join(modelName+'.pth'))
+
+        model = model
+        model.load_state_dict(state['model'])
+
+        optim = torch.optim.Adam(model.parameters(),lr=lr)
+        optim.load_state_dict(state['optimizer'])
 
     
 
