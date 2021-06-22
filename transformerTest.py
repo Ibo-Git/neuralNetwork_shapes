@@ -38,25 +38,6 @@ from torchvision.utils import make_grid, save_image
 from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
 
 
-def saveModel(saveName, model, optimizer):
-    state = {
-        'model': model.state_dict(),
-        'optimizer': optimizer.state_dict()
-    }
-    current_path = pathlib.Path().absolute()
-    model_save_path = os.path.join(current_path, saveName+'.pth')
-    torch.save(state, model_save_path)
-
-def loadModel(modelName, model, lr):
-    state = torch.load(os.path.join(modelName+'.pth'))
-
-    model = model
-    model.load_state_dict(state['model'])
-
-    optim = torch.optim.Adam(model.parameters(),lr=lr)
-    optim.load_state_dict(state['optimizer'])
-
-
 class modelTransformer(nn.Module):
     def __init__(self, src_vocab_size, embedding_size, tgt_vocab_size, tgt_seq_len, device):
         self.embedding_size = embedding_size
@@ -232,7 +213,7 @@ def TrainingLoop(num_epochs, model, optimizer, text, vocab, encIn_seq_len, decIn
                 expOutputChar = UtilityRNN.decodeChar(exp_output, vocab)
                 outputChar = UtilityRNN.decodeChar(output, vocab)
                 print('Epoch:{}, Batch number: {}, Expected Output: {}, Output: {}, Loss: {}, Accuracy: {}'.format(epoch, numBatch, expOutputChar[:][0], outputChar[:][0], loss, np.average(accuracies)))
-                #saveModel('TransformerModel', model, optimizer)
+                #NetUtility.saveModel('TransformerModel', model, optimizer)
 
 def training_loss(output, exp_output):
     criterion = nn.CrossEntropyLoss()
@@ -271,7 +252,7 @@ def main():
     model = modelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, decIn_seq_len+1, device).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr = 0.0005)
     
-    #loadModel('TransformerModel', model, 0.0005)
+    #NetUtility.loadModel('TransformerModel', model, 0.0005)
     TrainingLoop(num_epochs, model, optimizer, text, vocab, encIn_seq_len, decIn_seq_len, batch_size, device)
 
 if __name__ == '__main__':
