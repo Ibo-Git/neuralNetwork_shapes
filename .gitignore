@@ -4,3 +4,4 @@ __pycache__/NetBase.cpython-39.pyc
 textfiles/
 .vscode/
 trump/prepared/
+*.pth
