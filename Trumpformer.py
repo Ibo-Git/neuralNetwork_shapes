@@ -45,7 +45,7 @@ class ModelTransformer(nn.Module):
         self.embedding_size = embedding_size
         super(ModelTransformer, self).__init__()
         self.embedding = nn.Embedding(src_vocab_size, embedding_size)
-        self.transformer = nn.Transformer(embedding_size, nhead=n_heads, num_encoder_layers=num_encoder_layers, num_decoder_layers=num_decoder_layers, dropout=dropout)
+        self.transformer = nn.Transformer(embedding_size, nhead=n_heads, num_encoder_layers=num_encoder_layers, num_decoder_layers=num_decoder_layers, dropout=dropout, batch_first=True)
         self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
         self.softmax = nn.Softmax(dim=2)
 
@@ -62,8 +62,6 @@ class ModelTransformer(nn.Module):
     def forward(self, src, tgt):
         src = self.embedding(src)
         tgt = self.embedding(tgt)
-        src = src.permute(1, 0, 2)
-        tgt = tgt.permute(1, 0, 2)
         src = self.dropout_pos_enc(src + self.pe[:src.size(0), :])
         tgt = self.dropout_pos_enc(tgt + self.pe[:tgt.size(0), :])
         out = self.transformer(src, tgt, src_mask=self.src_mask, tgt_mask=self.tgt_mask)
@@ -100,26 +98,27 @@ class ModelTransformer(nn.Module):
     def evaluate(self):
         output = self(self.val_ds[0], self.val_ds[1])
         loss = self.criterion(output.reshape(-1, output.shape[-1]), self.val_ds[3])
-        acc = self.get_accuracy()
+        acc = self.get_accuracy(output)
         return loss, acc
 
-    def get_accuracy(self):
-        acc = None
+    def get_accuracy(self, output):
+        output = torch.argmax(output, 2).reshape(-1)
+        self.val_ds[3]
+        acc = sum(self.val_ds[3]==output).item()/len(self.val_ds[3])
         return acc
 
-    def start_training(self, num_epochs, optimizer):
+    def start_training(self, num_epochs, optimizer, scheduler):
         self.train()
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
 
         for epoch in range(num_epochs):
             for num_batch in range(len(self.train_ds)):
                 train_loss, output = self.train_batch(self.train_ds[num_batch], optimizer, scheduler)
                 if num_batch % 1 == 0:
-                    #val_loss, val_acc = self.evaluate()
-                    exp_output_char = UtilityRNN.decodeChar(self.train_ds[num_batch][2], self.vocab)
-                    output_char = UtilityRNN.decodeChar(output, self.vocab)
+                    val_loss, val_acc = self.evaluate()
+                    exp_output_char = UtilityRNN.decode_char(self.train_ds[num_batch][2], self.vocab)
+                    output_char = UtilityRNN.decode_char(output, self.vocab)
                     print('Epoch:{}, Batch number: {}, Expected Output: {}, Output: {}, train_loss: {}, val_loss: {}, accuracy: {}'
-                    .format(epoch, num_batch, exp_output_char[0], output_char[0], train_loss, 0, 0))
+                    .format(epoch, num_batch, exp_output_char[0], output_char[0], train_loss, val_loss, val_acc))
 
 
 class UtilityRNN():
@@ -202,9 +201,8 @@ class UtilityRNN():
         test_ds = [encoder_input[idx_split_2:-1], decoder_intput[idx_split_2:-1], expected_output[idx_split_2:-1], expected_output[idx_split_1:idx_split_2].reshape(-1)]
         return train_ds, val_ds, test_ds
 
-    def decodeChar(vector, vocab):
+    def decode_char(vector, vocab):
         if len(vector.shape) == 3:
-            vector = vector.permute(1, 0, 2)
             vector = torch.argmax(vector, 2)
 
         key_list = list(vocab)
@@ -229,7 +227,7 @@ def main():
     # parameters dataloader
     enc_in_seq_len = 10
     dec_in_seq_len = 25
-    percent_val = 0.2
+    percent_val = 0.01
     percent_test = 0.2
     batch_size = 128
 
@@ -246,11 +244,13 @@ def main():
 
     model = ModelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, n_heads, num_encoder_layers, num_decoder_layers, dropout).to(device)
     model.init_data(train_ds, val_ds, vocab, device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
 
     # train the model
     num_epochs = 100
-    model.start_training(num_epochs, optimizer)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
+
+    model.start_training(num_epochs, optimizer, scheduler)
 
 if __name__ == '__main__':
     main()
