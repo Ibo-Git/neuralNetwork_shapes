@@ -40,34 +40,32 @@ from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
 
 
 class ModelTransformer(nn.Module):
-    def __init__(self, 
-                 src_vocab_size, 
-                 embedding_size, 
-                 tgt_vocab_size, 
-                 n_heads,
-                 num_encoder_layers,
-                 num_decoder_layers,
-                 dropout):
+    def __init__(self, src_vocab_size, embedding_size, tgt_vocab_size, n_heads, num_encoder_layers, num_decoder_layers, dropout):
 
         self.embedding_size = embedding_size
         super(ModelTransformer, self).__init__()
         self.embedding = nn.Embedding(src_vocab_size, embedding_size)
-        self.positional_encoding = PositionalEncoding(embedding_size)
-        self.transformer = nn.Transformer(embedding_size, 
-                                          nhead=n_heads, 
-                                          num_encoder_layers=num_encoder_layers, 
-                                          num_decoder_layers=num_decoder_layers, 
-                                          dropout=dropout)
+        self.transformer = nn.Transformer(embedding_size, nhead=n_heads, num_encoder_layers=num_encoder_layers, num_decoder_layers=num_decoder_layers, dropout=dropout)
         self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
         self.softmax = nn.Softmax(dim=2)
+
+        self.max_len_pos_enc = 5000
+        self.dropout_pos_enc = nn.Dropout(p = 0.2)
+        pe = torch.zeros(self.max_len_pos_enc, self.embedding_size)
+        position = torch.arange(0, self.max_len_pos_enc, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, self.embedding_size, 2).float() * (-math.log(10000.0) / self.embedding_size))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0).transpose(0, 1)
+        self.register_buffer('pe', pe)
 
     def forward(self, src, tgt):
         src = self.embedding(src)
         tgt = self.embedding(tgt)
         src = src.permute(1, 0, 2)
         tgt = tgt.permute(1, 0, 2)
-        src = self.positional_encoding(src)
-        tgt = self.positional_encoding(tgt)
+        src = self.dropout_pos_enc(src + self.pe[:src.size(0), :])
+        tgt = self.dropout_pos_enc(tgt + self.pe[:tgt.size(0), :])
         out = self.transformer(src, tgt, src_mask=self.src_mask, tgt_mask=self.tgt_mask)
         out = self.fc_out(out)
         out = self.softmax(out)
@@ -79,17 +77,17 @@ class ModelTransformer(nn.Module):
         self.vocab = vocab
         self.device = device
         self.criterion = nn.CrossEntropyLoss()
-        self.src_seq_len = train_ds.shape[1]
-        self.tgt_seq_len = val_ds.shape[1]
+        self.src_seq_len = train_ds[0][0].shape[1]
+        self.tgt_seq_len = train_ds[0][1].shape[1]
         self.src_mask = torch.zeros((self.src_seq_len, self.src_seq_len)).type(torch.bool)
-        self.tgt_mask = self.generate_square_subsequent_mask(self.tgt_seq_len, self.device)
+        self.tgt_mask = self.generate_square_subsequent_mask(self.tgt_seq_len)
 
     def generate_square_subsequent_mask(self, sz):
         mask = (torch.triu(torch.ones((sz, sz))) == 1).transpose(0, 1)
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
-        return mask
+        return mask.to(self.device)
 
-    def training(self, train_batch, optimizer, scheduler):
+    def train_batch(self, train_batch, optimizer, scheduler):
         output = self(train_batch[0], train_batch[1])
         loss = self.criterion(output.reshape(-1, output.shape[-1]), train_batch[3])
         optimizer.zero_grad()     
@@ -109,37 +107,19 @@ class ModelTransformer(nn.Module):
         acc = None
         return acc
 
-    def start_training(self, num_epochs, optimizer, scheduler):
+    def start_training(self, num_epochs, optimizer):
         self.train()
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
         for epoch in range(num_epochs):
             for num_batch in range(len(self.train_ds)):
-                train_loss, output = self.train(self.train_ds[num_batch], optimizer, scheduler)
+                train_loss, output = self.train_batch(self.train_ds[num_batch], optimizer, scheduler)
                 if num_batch % 1 == 0:
                     val_loss, val_acc = self.evaluate()
-                    expOutputChar = UtilityRNN.decodeChar(self.train_ds[num_batch][2], self.vocab)
-                    outputChar = UtilityRNN.decodeChar(output, self.vocab)
+                    exp_output_char = UtilityRNN.decodeChar(self.train_ds[num_batch][2], self.vocab)
+                    output_char = UtilityRNN.decodeChar(output, self.vocab)
                     print('Epoch:{}, Batch number: {}, Expected Output: {}, Output: {}, train_loss: {}, val_loss: {}, accuracy: {}'
-                    .format(epoch, num_batch, expOutputChar[0], outputChar[0], train_loss, val_loss, val_acc))
+                    .format(epoch, num_batch, exp_output_char[0], output_char[0], train_loss, val_loss, val_acc))
 
-
-
-
-class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, dropout=0.2, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p = dropout)
-        
-        pe = torch.zeros(max_len, d_model)
-        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0).transpose(0, 1)
-        self.register_buffer('pe', pe)
-
-    def forward(self, x):
-        x = x + self.pe[:x.size(0), :]
-        return self.dropout(x)
 
 class UtilityRNN():
     def read_dataset():
@@ -154,62 +134,62 @@ class UtilityRNN():
         file_all = ''.join(file_all)
         return file_all
 
-    def getUniqueWords(text):
-        uniqueWords = []
+    def get_unique_words(text):
+        unique_words = []
         text = re.sub('([.,!?"()])', r' \1 ', text)
         text = re.sub('\s{2,}', ' ', text)
         text = re.sub(r'([0-9]{1}) . ([0-9]{1})', r'\1.\2', text)
         for word in text.split():
-            if word not in uniqueWords: uniqueWords.append(word)
-        return uniqueWords
+            if word not in unique_words: unique_words.append(word)
+        return unique_words
 
-    def assignIndex(uniqueWords):
+    def assign_index(unique_words):
         vocab = {'<SOS>': 0, '<EOS>': 1} #{'<PAD>': 0, '<UNK>': 1, '<SOS>': 2, '<EOS>': 3}
-        for word in uniqueWords: vocab[word] = len(vocab)
+        for word in unique_words: vocab[word] = len(vocab)
         return vocab
 
-    def splitText(text):
+    def split_text(text):
         text = re.sub('([.,!?"()])', r' \1 ', text)
         text = re.sub('\s{2,}', ' ', text)
         text = re.sub(r'([0-9]{1}) . ([0-9]{1})', r'\1.\2', text)
         text = list(text.split(" "))
         return text
 
-    def text2index(text, encIn_seq_len, decIn_seq_len, vocab, device):
+    def text2index(text, enc_in_seq_len, dec_in_seq_len, vocab, device):
         # text -> sequence
-        numSequence_max = len(text) // (encIn_seq_len + decIn_seq_len)
-        seqText = [[[] for j in range(3)] for i in range(numSequence_max)]
-        for numSequence in range(numSequence_max):
-            startIdx = numSequence * (encIn_seq_len + decIn_seq_len)
-            endIdx_enc = startIdx + encIn_seq_len
-            endIdx_dec = endIdx_enc + decIn_seq_len
-            seqText[numSequence][0] = text[startIdx:endIdx_enc]
-            seqText[numSequence][1] = text[endIdx_enc:endIdx_dec]
-            seqText[numSequence][2] = text[endIdx_enc:endIdx_dec]   
+        num_sequence_max = len(text) // (enc_in_seq_len + dec_in_seq_len)
+        seq_text = [[[] for j in range(3)] for i in range(num_sequence_max)]
+        for num_sequence in range(num_sequence_max):
+            start_idx = num_sequence * (enc_in_seq_len + dec_in_seq_len)
+            end_idx_enc = start_idx + enc_in_seq_len
+            end_idx_dec = end_idx_enc + dec_in_seq_len
+            seq_text[num_sequence][0] = text[start_idx:end_idx_enc]
+            seq_text[num_sequence][1] = text[end_idx_enc:end_idx_dec]
+            seq_text[num_sequence][2] = text[end_idx_enc:end_idx_dec]   
         # sequence -> index
-        seqIndex = [[[vocab[word] for word in seqType] for seqType in seqText[seq]] for seq in range(len(seqText))]
-        for i in range(len(seqIndex)): 
-            seqIndex[i][1].append(vocab['<EOS>'])
-            seqIndex[i][2].insert(0,vocab['<SOS>'])
-        return seqIndex     
+        seq_index = [[[vocab[word] for word in seqType] for seqType in seq_text[seq]] for seq in range(len(seq_text))]
+        for i in range(len(seq_index)): 
+            seq_index[i][1].append(vocab['<EOS>'])
+            seq_index[i][2].insert(0,vocab['<SOS>'])
+        return seq_index     
 
-    def dataloader(seqIndex, percent_val, percent_test, batch_size, device, shuffle=True):
+    def dataloader(seq_index, percent_val, percent_test, batch_size, device, shuffle=True):
         # shuffle
-        if shuffle: random.shuffle(seqIndex)
+        if shuffle: random.shuffle(seq_index)
         # extract encoder input, decoder input, expected output
-        encoder_input = torch.LongTensor([seqIndex[i][0] for i in range(len(seqIndex))]).to(device)
-        decoder_intput = torch.LongTensor([seqIndex[i][1] for i in range(len(seqIndex))]).to(device)
-        expected_output = torch.LongTensor([seqIndex[i][2] for i in range(len(seqIndex))]).to(device)
+        encoder_input = torch.LongTensor([seq_index[i][0] for i in range(len(seq_index))]).to(device)
+        decoder_intput = torch.LongTensor([seq_index[i][1] for i in range(len(seq_index))]).to(device)
+        expected_output = torch.LongTensor([seq_index[i][2] for i in range(len(seq_index))]).to(device)
         # get index for splitting into train, val, test
-        idx_split_1 = math.ceil(math.ceil(len(seqIndex)*(1-percent_val-percent_test))/batch_size)*batch_size
-        idx_split_2 = math.ceil(len(seqIndex)*(1-percent_test))
+        idx_split_1 = math.ceil(math.ceil(len(seq_index)*(1-percent_val-percent_test))/batch_size)*batch_size
+        idx_split_2 = math.ceil(len(seq_index)*(1-percent_test))
         # split into batches for training dataset
-        numBatches = idx_split_1//batch_size
-        enc_train = encoder_input[:idx_split_1].reshape(numBatches, batch_size, -1)
-        dec_train = decoder_intput[:idx_split_1].reshape(numBatches, batch_size, -1)
-        expOut_train = expected_output[:idx_split_1].reshape(numBatches, batch_size, -1)
+        num_batches = idx_split_1//batch_size
+        enc_train = encoder_input[:idx_split_1].reshape(num_batches, batch_size, -1)
+        dec_train = decoder_intput[:idx_split_1].reshape(num_batches, batch_size, -1)
+        exp_out_train = expected_output[:idx_split_1].reshape(num_batches, batch_size, -1)
         # get train, val and test
-        train_ds = [[enc_train[i], dec_train[i], expOut_train[i], expOut_train[i].reshape(-1)] for i in range(numBatches)]
+        train_ds = [[enc_train[i], dec_train[i], exp_out_train[i], exp_out_train[i].reshape(-1)] for i in range(num_batches)]
         val_ds = [encoder_input[idx_split_1:idx_split_2], decoder_intput[idx_split_1:idx_split_2], expected_output[idx_split_1:idx_split_2], expected_output[idx_split_1:idx_split_2].reshape(-1)]
         test_ds = [encoder_input[idx_split_2:-1], decoder_intput[idx_split_2:-1], expected_output[idx_split_2:-1], expected_output[idx_split_1:idx_split_2].reshape(-1)]
         return train_ds, val_ds, test_ds
@@ -219,9 +199,9 @@ class UtilityRNN():
             vector = vector.permute(1, 0, 2)
             vector = torch.argmax(vector, 2)
         key_list = list(vocab)
-        decodedVec = [[key_list[index] for index in batch] for batch in vector]
-        #decodedVec = np.reshape(decodedVec, (vector.shape[0], vector.shape[1])).T
-        return decodedVec
+        decoded_vec = [[key_list[index] for index in batch] for batch in vector]
+        #decoded_vec = np.reshape(decoded_vec, (vector.shape[0], vector.shape[1])).T
+        return decoded_vec
 
 
 
@@ -232,18 +212,18 @@ def main():
 
     # load and prepare data
     text = UtilityRNN.read_dataset()
-    uniqueWords = UtilityRNN.getUniqueWords(text)
-    vocab = UtilityRNN.assignIndex(uniqueWords)
-    text = UtilityRNN.splitText(text)
+    unique_words = UtilityRNN.get_unique_words(text)
+    vocab = UtilityRNN.assign_index(unique_words)
+    text = UtilityRNN.split_text(text)
 
     # parameters dataloader
-    encIn_seq_len = 10
-    decIn_seq_len = 25
-    percent_val = 0.05
-    percent_test = 0.05
+    enc_in_seq_len = 10
+    dec_in_seq_len = 25
+    percent_val = 0.2
+    percent_test = 0.2
     batch_size = 128
-    seqIndex = UtilityRNN.text2index(text, encIn_seq_len, decIn_seq_len, vocab, device)
-    train_ds, val_ds, test_ds = UtilityRNN.dataloader(seqIndex, percent_val, percent_test, batch_size, device, shuffle=True)
+    seq_index = UtilityRNN.text2index(text, enc_in_seq_len, dec_in_seq_len, vocab, device)
+    train_ds, val_ds, test_ds = UtilityRNN.dataloader(seq_index, percent_val, percent_test, batch_size, device, shuffle=True)
 
     # paramters transformer
     embedding_size = 512
@@ -259,11 +239,12 @@ def main():
 
     # define model and optimizer
     model = ModelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, n_heads, num_encoder_layers, num_decoder_layers, dropout).to(device)
+    model.init_data(train_ds, val_ds, vocab, device)
+    
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
 
     # train the model
-    TrainingLoop(num_epochs, model, optimizer, train_ds, val_ds, vocab)
+    model.start_training(num_epochs, optimizer)
 
 if __name__ == '__main__':
     main()
