@@ -39,7 +39,7 @@ from torchvision.utils import make_grid, save_image
 from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
 
 
-class modelTransformer(nn.Module):
+class ModelTransformer(nn.Module):
     def __init__(self, 
                  src_vocab_size, 
                  embedding_size, 
@@ -50,7 +50,7 @@ class modelTransformer(nn.Module):
                  dropout):
 
         self.embedding_size = embedding_size
-        super(modelTransformer, self).__init__()
+        super(ModelTransformer, self).__init__()
         self.embedding = nn.Embedding(src_vocab_size, embedding_size)
         self.positional_encoding = PositionalEncoding(embedding_size)
         self.transformer = nn.Transformer(embedding_size, 
@@ -61,17 +61,68 @@ class modelTransformer(nn.Module):
         self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
         self.softmax = nn.Softmax(dim=2)
 
-    def forward(self, src, tgt, src_mask, tgt_mask):
+    def forward(self, src, tgt):
         src = self.embedding(src)
         tgt = self.embedding(tgt)
         src = src.permute(1, 0, 2)
         tgt = tgt.permute(1, 0, 2)
         src = self.positional_encoding(src)
         tgt = self.positional_encoding(tgt)
-        out = self.transformer(src, tgt, src_mask=src_mask, tgt_mask=tgt_mask)
+        out = self.transformer(src, tgt, src_mask=self.src_mask, tgt_mask=self.tgt_mask)
         out = self.fc_out(out)
         out = self.softmax(out)
         return out
+
+    def init_data(self, train_ds, val_ds, vocab, device):
+        self.train_ds = train_ds
+        self.val_ds = val_ds
+        self.vocab = vocab
+        self.device = device
+        self.criterion = nn.CrossEntropyLoss()
+        self.src_seq_len = train_ds.shape[1]
+        self.tgt_seq_len = val_ds.shape[1]
+        self.src_mask = torch.zeros((self.src_seq_len, self.src_seq_len)).type(torch.bool)
+        self.tgt_mask = self.generate_square_subsequent_mask(self.tgt_seq_len, self.device)
+
+    def generate_square_subsequent_mask(self, sz):
+        mask = (torch.triu(torch.ones((sz, sz))) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
+
+    def training(self, train_batch, optimizer, scheduler):
+        output = self(train_batch[0], train_batch[1])
+        loss = self.criterion(output.reshape(-1, output.shape[-1]), train_batch[3])
+        optimizer.zero_grad()     
+        loss.backward()
+        optimizer.step()
+        torch.nn.utils.clip_grad_norm_(self.parameters(), 0.5)
+        # scheduler.step()
+        return loss, output
+
+    def evaluate(self):
+        output = self(self.val_ds[0], self.val_ds[1])
+        loss = self.criterion(output.reshape(-1, output.shape[-1]), self.val_ds[3])
+        acc = self.get_accuracy()
+        return loss, acc
+
+    def get_accuracy(self):
+        acc = None
+        return acc
+
+    def start_training(self, num_epochs, optimizer, scheduler):
+        self.train()
+        for epoch in range(num_epochs):
+            for num_batch in range(len(self.train_ds)):
+                train_loss, output = self.train(self.train_ds[num_batch], optimizer, scheduler)
+                if num_batch % 1 == 0:
+                    val_loss, val_acc = self.evaluate()
+                    expOutputChar = UtilityRNN.decodeChar(self.train_ds[num_batch][2], self.vocab)
+                    outputChar = UtilityRNN.decodeChar(output, self.vocab)
+                    print('Epoch:{}, Batch number: {}, Expected Output: {}, Output: {}, train_loss: {}, val_loss: {}, accuracy: {}'
+                    .format(epoch, num_batch, expOutputChar[0], outputChar[0], train_loss, val_loss, val_acc))
+
+
+
 
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.2, max_len=5000):
@@ -174,74 +225,6 @@ class UtilityRNN():
 
 
 
-class BaseTransformer():
-    def generate_square_subsequent_mask(sz, device):
-        mask = (torch.triu(torch.ones((sz, sz))) == 1).transpose(0, 1)
-        #mask.to(device)
-        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
-        return mask
-
-    def create_mask(src, tgt, device):
-        src_seq_len = src.shape[1]
-        tgt_seq_len = tgt.shape[1]
-        tgt_mask = BaseTransformer.generate_square_subsequent_mask(tgt_seq_len, device)
-        src_mask = torch.zeros((src_seq_len, src_seq_len)).type(torch.bool)
-        #src_padding_mask = (src == PAD_IDX).transpose(0, 1)
-        #tgt_padding_mask = (tgt == PAD_IDX).transpose(0, 1)
-        return src_mask, tgt_mask #, src_padding_mask, tgt_padding_mask
-
-    def train(model, train_batch, optimizer, scheduler, criterion, device):
-        encoder_input = train_batch[0]
-        decoder_input = train_batch[1]
-        expected_output_reshaped = train_batch[3]
-
-        src_mask, tgt_mask = BaseTransformer.create_mask(encoder_input, decoder_input, device)
-        output = model(encoder_input, decoder_input, src_mask, tgt_mask)
-        loss = criterion(output.reshape(-1, output.shape[-1]), expected_output_reshaped)
-        optimizer.zero_grad()     
-        loss.backward()
-        optimizer.step()
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
-        # scheduler.step()
-        return loss, output
-
-    def evaluate(model, val_ds, criterion):
-        encoder_input = val_ds[0]
-        decoder_input = val_ds[1]
-        expected_output_reshaped = val_ds[3]
-        output = model(encoder_input, decoder_input)
-        loss = criterion(output.reshape(-1, output.shape[-1]), expected_output_reshaped)
-        acc = BaseTransformer.get_accuracy()
-        return loss, acc
-
-    def get_accuracy():
-        acc = None
-        return acc
-
-
-
-def TrainingLoop(num_epochs, model, optimizer, train_ds, val_ds, vocab):
-    model.train()
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
-    criterion = nn.CrossEntropyLoss()
-
-    for epoch in range(num_epochs):
-        for numBatch in range(len(train_ds)):
-            train_loss, output = BaseTransformer.train(model, train_ds[numBatch], optimizer, scheduler, criterion, device)
-            if numBatch % 1 == 0:
-                #val_loss, val_acc = BaseTransformer.evaluate(model, val_ds, criterion)
-                expOutputChar = UtilityRNN.decodeChar(train_ds[numBatch][2], vocab)
-                outputChar = UtilityRNN.decodeChar(output, vocab)
-                print('Epoch:{}, Batch number: {}, Expected Output: {}, Output: {}, train_loss: {}, val_loss: {}, accuracy: {}'
-                .format(epoch, numBatch, expOutputChar[0], outputChar[0], train_loss, 0, 0))
-
-            #if epoch % 1 == 0:
-            #    output_max = torch.argmax(output, 2)
-            #    exp_output_max = torch.argmax(exp_output, 2)
-            #    accuracies.append(np.average(np.average([[1 if exp_output_max[i][j].tolist() == y.tolist() else 0 for j, y in enumerate(x)] for i, x in enumerate(output_max)], 0)))
-
-
-
 
 def main():
     # define device
@@ -275,9 +258,10 @@ def main():
     num_epochs = 100
 
     # define model and optimizer
-    model = modelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, n_heads, num_encoder_layers, num_decoder_layers, dropout).to(device)
+    model = ModelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, n_heads, num_encoder_layers, num_decoder_layers, dropout).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
-    
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
+
     # train the model
     TrainingLoop(num_epochs, model, optimizer, train_ds, val_ds, vocab)
 
