@@ -110,15 +110,16 @@ class ModelTransformer(nn.Module):
     def start_training(self, num_epochs, optimizer):
         self.train()
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
+
         for epoch in range(num_epochs):
             for num_batch in range(len(self.train_ds)):
                 train_loss, output = self.train_batch(self.train_ds[num_batch], optimizer, scheduler)
                 if num_batch % 1 == 0:
-                    val_loss, val_acc = self.evaluate()
+                    #val_loss, val_acc = self.evaluate()
                     exp_output_char = UtilityRNN.decodeChar(self.train_ds[num_batch][2], self.vocab)
                     output_char = UtilityRNN.decodeChar(output, self.vocab)
                     print('Epoch:{}, Batch number: {}, Expected Output: {}, Output: {}, train_loss: {}, val_loss: {}, accuracy: {}'
-                    .format(epoch, num_batch, exp_output_char[0], output_char[0], train_loss, val_loss, val_acc))
+                    .format(epoch, num_batch, exp_output_char[0], output_char[0], train_loss, 0, 0))
 
 
 class UtilityRNN():
@@ -126,6 +127,7 @@ class UtilityRNN():
         current_path = pathlib.Path().absolute()
         files_names = os.listdir(os.path.join(current_path, 'trump\\originals'))
         file_all = []
+
         for file_name in files_names:
             with open(os.path.join(current_path, 'trump\\originals', file_name), 'r', encoding="UTF-8") as file:
                 file = file.read().replace('\n', '')
@@ -139,8 +141,10 @@ class UtilityRNN():
         text = re.sub('([.,!?"()])', r' \1 ', text)
         text = re.sub('\s{2,}', ' ', text)
         text = re.sub(r'([0-9]{1}) . ([0-9]{1})', r'\1.\2', text)
+
         for word in text.split():
             if word not in unique_words: unique_words.append(word)
+
         return unique_words
 
     def assign_index(unique_words):
@@ -159,18 +163,22 @@ class UtilityRNN():
         # text -> sequence
         num_sequence_max = len(text) // (enc_in_seq_len + dec_in_seq_len)
         seq_text = [[[] for j in range(3)] for i in range(num_sequence_max)]
+
         for num_sequence in range(num_sequence_max):
             start_idx = num_sequence * (enc_in_seq_len + dec_in_seq_len)
             end_idx_enc = start_idx + enc_in_seq_len
             end_idx_dec = end_idx_enc + dec_in_seq_len
             seq_text[num_sequence][0] = text[start_idx:end_idx_enc]
             seq_text[num_sequence][1] = text[end_idx_enc:end_idx_dec]
-            seq_text[num_sequence][2] = text[end_idx_enc:end_idx_dec]   
+            seq_text[num_sequence][2] = text[end_idx_enc:end_idx_dec]
+
         # sequence -> index
         seq_index = [[[vocab[word] for word in seqType] for seqType in seq_text[seq]] for seq in range(len(seq_text))]
+
         for i in range(len(seq_index)): 
             seq_index[i][1].append(vocab['<EOS>'])
             seq_index[i][2].insert(0,vocab['<SOS>'])
+
         return seq_index     
 
     def dataloader(seq_index, percent_val, percent_test, batch_size, device, shuffle=True):
@@ -198,34 +206,36 @@ class UtilityRNN():
         if len(vector.shape) == 3:
             vector = vector.permute(1, 0, 2)
             vector = torch.argmax(vector, 2)
+
         key_list = list(vocab)
         decoded_vec = [[key_list[index] for index in batch] for batch in vector]
         #decoded_vec = np.reshape(decoded_vec, (vector.shape[0], vector.shape[1])).T
         return decoded_vec
 
-
+    def process_text(enc_in_seq_len, dec_in_seq_len, percent_val, percent_test, batch_size, device):
+        text = UtilityRNN.read_dataset()
+        unique_words = UtilityRNN.get_unique_words(text)
+        vocab = UtilityRNN.assign_index(unique_words)
+        text = UtilityRNN.split_text(text)
+        seq_index = UtilityRNN.text2index(text, enc_in_seq_len, dec_in_seq_len, vocab, device)
+        train_ds, val_ds, test_ds = UtilityRNN.dataloader(seq_index, percent_val, percent_test, batch_size, device, shuffle=True)
+        return train_ds, val_ds, test_ds, vocab
 
 
 def main():
     # define device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # load and prepare data
-    text = UtilityRNN.read_dataset()
-    unique_words = UtilityRNN.get_unique_words(text)
-    vocab = UtilityRNN.assign_index(unique_words)
-    text = UtilityRNN.split_text(text)
-
+    
     # parameters dataloader
     enc_in_seq_len = 10
     dec_in_seq_len = 25
     percent_val = 0.2
     percent_test = 0.2
     batch_size = 128
-    seq_index = UtilityRNN.text2index(text, enc_in_seq_len, dec_in_seq_len, vocab, device)
-    train_ds, val_ds, test_ds = UtilityRNN.dataloader(seq_index, percent_val, percent_test, batch_size, device, shuffle=True)
 
-    # paramters transformer
+    train_ds, val_ds, test_ds, vocab = UtilityRNN.process_text(enc_in_seq_len, dec_in_seq_len, percent_val, percent_test, batch_size, device)
+    
+    # define model
     embedding_size = 512
     src_vocab_size = len(vocab)
     tgt_vocab_size = len(vocab)
@@ -234,16 +244,12 @@ def main():
     num_decoder_layers = 3
     dropout = 0.1
 
-    # parameters training
-    num_epochs = 100
-
-    # define model and optimizer
     model = ModelTransformer(src_vocab_size, embedding_size, tgt_vocab_size, n_heads, num_encoder_layers, num_decoder_layers, dropout).to(device)
     model.init_data(train_ds, val_ds, vocab, device)
-    
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
 
     # train the model
+    num_epochs = 100
     model.start_training(num_epochs, optimizer)
 
 if __name__ == '__main__':
