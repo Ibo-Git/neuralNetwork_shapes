@@ -190,7 +190,7 @@ class UtilityRNN():
             seq_index[i][2].append(vocab['<EOS>'])
 
 
-        return seq_index     
+        return seq_index      
 
     def dataloader(seq_index, percent_val, batch_size_train, batch_size_val, device, vocab, shuffle=True):
         # shuffle
