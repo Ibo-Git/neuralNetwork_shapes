@@ -6,6 +6,7 @@ import pathlib
 import random
 import re
 import shutil
+import statistics
 import string
 import tarfile
 from multiprocessing import Process, freeze_support
@@ -37,12 +38,6 @@ from torchvision.transforms.transforms import LinearTransformation
 from torchvision.utils import make_grid, save_image
 
 from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
-
-
-
-
-
-
 
 
 class ModelTransformer(nn.Module):
@@ -82,8 +77,8 @@ class ModelTransformer(nn.Module):
         self.device = device
         #self.criterion = nn.CrossEntropyLoss() # CrossEntropy
         self.criterion = nn.BCELoss()
-        self.src_seq_len = train_ds[0]['enc_train'].shape[1]
-        self.tgt_seq_len = train_ds[0]['dec_train'].shape[1]
+        self.src_seq_len = train_ds[0]['encoder_input'].shape[1]
+        self.tgt_seq_len = train_ds[0]['decoder_input'].shape[1]
         self.src_mask = torch.zeros((self.src_seq_len, self.src_seq_len)).type(torch.bool).to(device)
         self.tgt_mask = self.generate_square_subsequent_mask(self.tgt_seq_len).to(device)
 
@@ -93,8 +88,8 @@ class ModelTransformer(nn.Module):
         return mask.to(self.device)
 
     def train_batch(self, train_batch, optimizer, scheduler):
-        output = self(train_batch['enc_train'], train_batch['dec_train'])
-        loss = self.criterion(output, train_batch['exp_out_train_encoded'])
+        output = self(train_batch['encoder_input'], train_batch['decoder_input'])
+        loss = self.criterion(output, train_batch['expected_output_encoded'])
         #loss = self.criterion(output.reshape(-1, output.shape[-1]), train_batch[3]) # CrossEntropy
         optimizer.zero_grad()     
         loss.backward()
@@ -104,16 +99,21 @@ class ModelTransformer(nn.Module):
         return loss, output
 
     def evaluate(self):
-        output = self(self.val_ds['encoder_input'], self.val_ds['decoder_input'])
-        loss = self.criterion(output, self.val_ds['exp_out_train_encoded'])
+        val_loss = []
+        val_acc = []
+        for i in range(len(self.val_ds)):
+            output = self(self.val_ds[i]['encoder_input'], self.val_ds[i]['decoder_input'])
+            loss = self.criterion(output, self.val_ds[i]['expected_output_encoded'])
         #loss = self.criterion(output.reshape(-1, output.shape[-1]), self.val_ds['expected_output_flat'])  # CrossEntropy
-        acc = self.get_accuracy(output)
-        return loss, acc
+            acc = self.get_accuracy(output, self.val_ds[i]['expected_output_flat'])
+            val_loss.append(loss.item())
+            val_acc.append(acc)
 
-    def get_accuracy(self, output):
+        return statistics.mean(val_acc), statistics.mean(val_loss)
+
+    def get_accuracy(self, output, expected_output):
         output = torch.argmax(output, 2).reshape(-1)
-        self.val_ds['expected_output_flat']
-        acc = sum(self.val_ds['expected_output_flat'] == output).item() / len(self.val_ds['expected_output_flat'])
+        acc = sum(expected_output == output).item() / len(expected_output)
         return acc
 
     def start_training(self, num_epochs, optimizer, scheduler):
@@ -125,7 +125,7 @@ class ModelTransformer(nn.Module):
 
                 if num_batch % 1 == 0:
                     val_loss, val_acc = self.evaluate()
-                    exp_output_char = UtilityRNN.decode_char(self.train_ds[num_batch]['exp_out_train'], self.vocab)
+                    exp_output_char = UtilityRNN.decode_char(self.train_ds[num_batch]['expected_output'], self.vocab)
                     output_char = UtilityRNN.decode_char(output, self.vocab)
 
                     print('Epoch:{}, Batch number: {}, Expected Output: {}, Output: {}, train_loss: {}, val_loss: {}, accuracy: {}'
@@ -141,10 +141,10 @@ class UtilityRNN():
         for file_name in files_names:
             with open(os.path.join(current_path, 'trump\\originals', file_name), 'r', encoding="UTF-8") as file:
                 file = file.read().replace('\n', '')
-            file_all.append(file)
+            #file_all.append(file)
         
-        file_all = ''.join(file_all)
-        return file_all
+        #file_all = ''.join(file_all)
+        return file#file_all
 
     def get_unique_words(text):
         unique_words = []
@@ -186,12 +186,13 @@ class UtilityRNN():
         seq_index = [[[vocab[word] for word in seqType] for seqType in seq_text[seq]] for seq in range(len(seq_text))]
 
         for i in range(len(seq_index)): 
-            seq_index[i][1].append(vocab['<EOS>'])
-            seq_index[i][2].insert(0,vocab['<SOS>'])
+            seq_index[i][1].insert(0,vocab['<SOS>'])
+            seq_index[i][2].append(vocab['<EOS>'])
+
 
         return seq_index     
 
-    def dataloader(seq_index, percent_val, percent_test, batch_size, device, vocab, shuffle=True):
+    def dataloader(seq_index, percent_val, batch_size_train, batch_size_val, device, vocab, shuffle=True):
         # shuffle
         if shuffle: random.shuffle(seq_index)
 
@@ -200,42 +201,42 @@ class UtilityRNN():
         decoder_input = torch.LongTensor([seq_index[i][1] for i in range(len(seq_index))]).to(device)
         expected_output = torch.LongTensor([seq_index[i][2] for i in range(len(seq_index))]).to(device)
 
-        # get index for splitting into train, val, test
-        idx_split_1 = math.ceil(math.ceil(len(seq_index)*(1-percent_val-percent_test))/batch_size)*batch_size
-        idx_split_2 = math.ceil(len(seq_index)*(1-percent_test))
+        # get index for splitting into train, val
+        idx_split_1 = math.ceil(math.ceil(len(seq_index)*(1-percent_val))/batch_size_train)*batch_size_train
+        idx_split_2 = idx_split_1 + math.floor(len(seq_index[idx_split_1:-1])/batch_size_val)*batch_size_val
 
         # split into batches for training dataset
-        num_batches = idx_split_1 // batch_size
-        enc_train = encoder_input[:idx_split_1].reshape(num_batches, batch_size, -1)
-        dec_train = decoder_input[:idx_split_1].reshape(num_batches, batch_size, -1)
-        exp_out_train = expected_output[:idx_split_1].reshape(num_batches, batch_size, -1)
+        num_batches_train = idx_split_1 // batch_size_train
+        enc_train = encoder_input[:idx_split_1].reshape(num_batches_train, batch_size_train, -1)
+        dec_train = decoder_input[:idx_split_1].reshape(num_batches_train, batch_size_train, -1)
+        exp_out_train = expected_output[:idx_split_1].reshape(num_batches_train, batch_size_train, -1)
+
+        # split into batches for validation dataset
+        num_batches_val = (idx_split_2 - idx_split_1) // batch_size_train
+        enc_val = encoder_input[idx_split_1:idx_split_2].reshape(num_batches_val, batch_size_val, -1)
+        dec_val = decoder_input[idx_split_1:idx_split_2].reshape(num_batches_val, batch_size_val, -1)
+        exp_out_val = expected_output[idx_split_1:idx_split_2].reshape(num_batches_val, batch_size_val, -1)
 
         # get train, val and test
         train_ds = [{ 
-                'enc_train': enc_train[i], 
-                'dec_train': dec_train[i], 
-                'exp_out_train': exp_out_train[i], 
-                'exp_out_train_flat': exp_out_train[i].reshape(-1),
-                'exp_out_train_encoded': UtilityRNN.encode_target(exp_out_train[i], vocab).to(device)
-            } for i in range(num_batches)
+                'encoder_input': enc_train[i], 
+                'decoder_input': dec_train[i], 
+                'expected_output': exp_out_train[i], 
+                'expected_output_flat': exp_out_train[i].reshape(-1),
+                'expected_output_encoded': UtilityRNN.encode_target(exp_out_train[i], vocab).to(device)
+            } for i in range(num_batches_train)
         ]
             
-        val_ds = { 
-            'encoder_input': encoder_input[idx_split_1:idx_split_2], 
-            'decoder_input': decoder_input[idx_split_1:idx_split_2], 
-            'expected_output': expected_output[idx_split_1:idx_split_2], 
-            'expected_output_flat': expected_output[idx_split_1:idx_split_2].reshape(-1),
-            'exp_out_train_encoded': UtilityRNN.encode_target(expected_output[idx_split_1:idx_split_2], vocab).to(device) 
-        }
+        val_ds = [{ 
+                'encoder_input': enc_val[i], 
+                'decoder_input': dec_val[i], 
+                'expected_output': exp_out_val[i], 
+                'expected_output_flat': exp_out_val[i].reshape(-1),
+                'expected_output_encoded': UtilityRNN.encode_target(exp_out_val[i], vocab).to(device)
+            } for i in range(num_batches_val)
+        ]
 
-        test_ds = { 
-            'encoder_input': encoder_input[idx_split_2:-1], 
-            'decoder_input': decoder_input[idx_split_2:-1], 
-            'expected_output':  expected_output[idx_split_2:-1],
-            'expected_output_flat':  expected_output[idx_split_1:idx_split_2].reshape(-1) 
-        }
-
-        return train_ds, val_ds, test_ds
+        return train_ds, val_ds
 
     def decode_char(vector, vocab):
         if len(vector.shape) == 3:
@@ -252,8 +253,8 @@ class UtilityRNN():
         vocab = UtilityRNN.assign_index(unique_words)
         text = UtilityRNN.split_text(text)
         seq_index = UtilityRNN.text2index(text, enc_in_seq_len, dec_in_seq_len, vocab, device)
-        train_ds, val_ds, test_ds = UtilityRNN.dataloader(seq_index, percent_val, percent_test, batch_size, device, vocab, shuffle=True)
-        return train_ds, val_ds, test_ds, vocab
+        train_ds, val_ds = UtilityRNN.dataloader(seq_index, percent_val, percent_test, batch_size, device, vocab, shuffle=True)
+        return train_ds, val_ds, vocab
 
     def encode_target(vector, vocab):
         # check dimensions of vector
@@ -266,6 +267,7 @@ class UtilityRNN():
 
 
 from enum import Enum
+
 
 class ManagedTensorMemoryStorageMode(Enum):
     DEFAULT_DEVICE = 0
@@ -284,31 +286,28 @@ class ManagedTensor:
     
     def __init__(self, tensor=None, storage_mode:ManagedTensorMemoryStorageMode=ManagedTensorMemoryStorageMode.DEFAULT_DEVICE):
         self.storage_mode = storage_mode
-        self.current_device = 'none'
         self.allow_autoconvert = False
         if (tensor != None): self.tensor = tensor
         ManagedTensor.instances.append(self)
      
-    def get_storage_device(self):
+    def __get_storage_device(self):
         return ManagedTensor.device_map[self.storage_mode.value]
 
     @property
     def tensor(self):
-        if (self.allow_autoconvert and self._tensor != None and self.current_device != ManagedTensor.device_default): 
-            self.current_device = ManagedTensor.device_default
-            self._tensor = self._tensor.to(self.current_device)
+        if (self.allow_autoconvert and self._tensor != None and self._tensor.device.type != ManagedTensor.device_default): 
+            self._tensor = self._tensor.to(ManagedTensor.device_default)
 
         return self._tensor
 
     @tensor.setter
     def tensor(self, value):
         self._tensor = value
-        self.move_to_storage() # Auto-convert tensor to device
+        self.__move_to_storage() # Auto-convert tensor to device
 
-    def move_to_storage(self):
-        if (self._tensor != None and self.current_device != self.get_storage_device()): 
-            self.current_device = self.get_storage_device()
-            self._tensor = self._tensor.to(self.current_device)
+    def __move_to_storage(self):
+        if (self._tensor != None and self._tensor.device.type != self.__get_storage_device()): 
+            self._tensor = self._tensor.to(self.__get_storage_device())
 
     def __enter__(self):
         self.allow_autoconvert = True
@@ -316,7 +315,7 @@ class ManagedTensor:
 
     def __exit__(self, exc_type, exc_value, traceback):
         self.allow_autoconvert = False
-        self.move_to_storage()
+        self.__move_to_storage()
 
 
 
@@ -325,32 +324,34 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # parameters dataloader
-    enc_in_seq_len = 10
-    dec_in_seq_len = 25
-    percent_val = 0.02
-    percent_test = 0.01
-    batch_size = 128
+    enc_in_seq_len = 5 #10
+    dec_in_seq_len = 5 #25
+    percent_val = 0.5
+    batch_size_train = 64 #128
+    batch_size_val = 64 #128
 
     # Set default device
     ManagedTensor.init(device)
 
-    test_tensor2 = ManagedTensor(torch.Tensor([1, 2, 3, 4]))
-    tester = test_tensor2.tensor
-    a = 2
+    #test_tensor2 = ManagedTensor(torch.Tensor([1, 2, 3, 4]))
+    #tester = test_tensor2.tensor
+    #a = 2
 
-    cpu_stored_tensor = ManagedTensor(torch.Tensor([1, 2, 3, 4]), ManagedTensorMemoryStorageMode.CPU)
+    #cpu_stored_tensor = ManagedTensor(torch.Tensor([1, 2, 3, 4]), ManagedTensorMemoryStorageMode.CPU)
+    #test = cpu_stored_tensor.tensor
+    
+    
+    #print(cpu_stored_tensor.tensor.device)
 
-    print(cpu_stored_tensor.tensor.device)
+    #with cpu_stored_tensor as cpu_stored_tensor:
+    #    tester = cpu_stored_tensor.tensor
+    #    print(cpu_stored_tensor.tensor.device)
+    #    test = 3
 
-    with cpu_stored_tensor as cpu_stored_tensor:
-        tester = cpu_stored_tensor.tensor
-        print(cpu_stored_tensor.tensor.device)
-        test = 3
-
-    print(cpu_stored_tensor.tensor.device)
+    #print(cpu_stored_tensor.tensor.device)
     
 
-    train_ds, val_ds, test_ds, vocab = UtilityRNN.process_text(enc_in_seq_len, dec_in_seq_len, percent_val, percent_test, batch_size, device)
+    train_ds, val_ds, vocab = UtilityRNN.process_text(enc_in_seq_len, dec_in_seq_len, percent_val, batch_size_train, batch_size_val, device)
     
     
     
