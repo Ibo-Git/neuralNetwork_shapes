@@ -273,7 +273,7 @@ from enum import Enum
 class ManagedTensorMemoryStorageMode(Enum):
     DEFAULT_DEVICE = 0
     CPU = 1
-    GPU = 2
+    GPU = 2 
     
 
 
@@ -287,7 +287,6 @@ class ManagedTensor:
     
     def __init__(self, tensor=None, storage_mode:ManagedTensorMemoryStorageMode=ManagedTensorMemoryStorageMode.DEFAULT_DEVICE):
         self.storage_mode = storage_mode
-        self.current_device = 'none'
         self.allow_autoconvert = False
         if (tensor != None): self.tensor = tensor
         ManagedTensor.instances.append(self)
@@ -297,9 +296,8 @@ class ManagedTensor:
 
     @property
     def tensor(self):
-        if (self.allow_autoconvert and self._tensor != None and self.current_device != ManagedTensor.device_default): 
-            self.current_device = ManagedTensor.device_default
-            self._tensor = self._tensor.to(self.current_device)
+        if (self.allow_autoconvert and self._tensor != None and self._tensor.device.type != ManagedTensor.device_default): 
+            self._tensor = self._tensor.to(ManagedTensor.device_default)
 
         return self._tensor
 
@@ -309,9 +307,8 @@ class ManagedTensor:
         self.move_to_storage() # Auto-convert tensor to device
 
     def move_to_storage(self):
-        if (self._tensor != None and self.current_device != self.get_storage_device()): 
-            self.current_device = self.get_storage_device()
-            self._tensor = self._tensor.to(self.current_device)
+        if (self._tensor != None and self._tensor.device.type != self.get_storage_device()): 
+            self._tensor = self._tensor.to(self.get_storage_device())
 
     def __enter__(self):
         self.allow_autoconvert = True
@@ -346,7 +343,6 @@ def main():
     print(cpu_stored_tensor.tensor.device)
 
     with cpu_stored_tensor as cpu_stored_tensor:
-        tester = cpu_stored_tensor.tensor
         print(cpu_stored_tensor.tensor.device)
         test = 3
 
