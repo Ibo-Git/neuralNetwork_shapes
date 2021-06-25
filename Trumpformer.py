@@ -39,6 +39,12 @@ from torchvision.utils import make_grid, save_image
 from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
 
 
+
+
+
+
+
+
 class ModelTransformer(nn.Module):
     def __init__(self, src_vocab_size, embedding_size, tgt_vocab_size, n_heads, num_encoder_layers, num_decoder_layers, dropout):
 
@@ -259,6 +265,61 @@ class UtilityRNN():
         return encodedVec
 
 
+from enum import Enum
+
+class ManagedTensorMemoryStorageMode(Enum):
+    DEFAULT_DEVICE = 0
+    CPU = 1
+    GPU = 2
+    
+
+
+class ManagedTensor:
+    def init(device):
+        ManagedTensor.instances = []
+        ManagedTensor.device_cpu = 'cpu'
+        ManagedTensor.device_gpu = 'cuda'
+        ManagedTensor.device_default = device
+        ManagedTensor.device_map = [ManagedTensor.device_default, ManagedTensor.device_cpu, ManagedTensor.device_gpu]
+    
+    def __init__(self, tensor=None, storage_mode:ManagedTensorMemoryStorageMode=ManagedTensorMemoryStorageMode.DEFAULT_DEVICE):
+        self.storage_mode = storage_mode
+        self.current_device = 'none'
+        self.allow_autoconvert = False
+        if (tensor != None): self.tensor = tensor
+        ManagedTensor.instances.append(self)
+     
+    def get_storage_device(self):
+        return ManagedTensor.device_map[self.storage_mode.value]
+
+    @property
+    def tensor(self):
+        if (self.allow_autoconvert and self._tensor != None and self.current_device != ManagedTensor.device_default): 
+            self.current_device = ManagedTensor.device_default
+            self._tensor = self._tensor.to(self.current_device)
+
+        return self._tensor
+
+    @tensor.setter
+    def tensor(self, value):
+        self._tensor = value
+        self.move_to_storage() # Auto-convert tensor to device
+
+    def move_to_storage(self):
+        if (self._tensor != None and self.current_device != self.get_storage_device()): 
+            self.current_device = self.get_storage_device()
+            self._tensor = self._tensor.to(self.current_device)
+
+    def __enter__(self):
+        self.allow_autoconvert = True
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.allow_autoconvert = False
+        self.move_to_storage()
+
+
+
 def main():
     # define device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -266,12 +327,34 @@ def main():
     # parameters dataloader
     enc_in_seq_len = 10
     dec_in_seq_len = 25
-    percent_val = 0.10
+    percent_val = 0.02
     percent_test = 0.01
     batch_size = 128
 
+    # Set default device
+    ManagedTensor.init(device)
+
+    test_tensor2 = ManagedTensor(torch.Tensor([1, 2, 3, 4]))
+    tester = test_tensor2.tensor
+    a = 2
+
+    cpu_stored_tensor = ManagedTensor(torch.Tensor([1, 2, 3, 4]), ManagedTensorMemoryStorageMode.CPU)
+
+    print(cpu_stored_tensor.tensor.device)
+
+    with cpu_stored_tensor as cpu_stored_tensor:
+        tester = cpu_stored_tensor.tensor
+        print(cpu_stored_tensor.tensor.device)
+        test = 3
+
+    print(cpu_stored_tensor.tensor.device)
+    
+
     train_ds, val_ds, test_ds, vocab = UtilityRNN.process_text(enc_in_seq_len, dec_in_seq_len, percent_val, percent_test, batch_size, device)
     
+    
+    
+
     # define model
     embedding_size = 512
     src_vocab_size = len(vocab)
@@ -293,4 +376,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+
 
