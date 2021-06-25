@@ -89,7 +89,8 @@ class ModelTransformer(nn.Module):
 
     def train_batch(self, train_batch, optimizer, scheduler):
         output = self(train_batch['encoder_input'], train_batch['decoder_input'])
-        loss = self.criterion(output, train_batch['expected_output_encoded'])
+        with train_batch['expected_output_encoded'] as exp_output_train:
+            loss = self.criterion(output, exp_output_train.tensor)
         #loss = self.criterion(output.reshape(-1, output.shape[-1]), train_batch[3]) # CrossEntropy
         optimizer.zero_grad()     
         loss.backward()
@@ -103,7 +104,8 @@ class ModelTransformer(nn.Module):
         val_acc = []
         for i in range(len(self.val_ds)):
             output = self(self.val_ds[i]['encoder_input'], self.val_ds[i]['decoder_input'])
-            loss = self.criterion(output, self.val_ds[i]['expected_output_encoded'])
+            with self.val_ds[i]['expected_output_encoded'] as exp_output_val:
+                loss = self.criterion(output, exp_output_val.tensor)
         #loss = self.criterion(output.reshape(-1, output.shape[-1]), self.val_ds['expected_output_flat'])  # CrossEntropy
             acc = self.get_accuracy(output, self.val_ds[i]['expected_output_flat'])
             val_loss.append(loss.item())
@@ -223,7 +225,7 @@ class UtilityRNN():
                 'decoder_input': dec_train[i], 
                 'expected_output': exp_out_train[i], 
                 'expected_output_flat': exp_out_train[i].reshape(-1),
-                'expected_output_encoded': UtilityRNN.encode_target(exp_out_train[i], vocab).to(device)
+                'expected_output_encoded':  ManagedTensor(UtilityRNN.encode_target(exp_out_train[i], vocab), ManagedTensorMemoryStorageMode.CPU)
             } for i in range(num_batches_train)
         ]
             
@@ -232,7 +234,7 @@ class UtilityRNN():
                 'decoder_input': dec_val[i], 
                 'expected_output': exp_out_val[i], 
                 'expected_output_flat': exp_out_val[i].reshape(-1),
-                'expected_output_encoded': UtilityRNN.encode_target(exp_out_val[i], vocab).to(device)
+                'expected_output_encoded': ManagedTensor(UtilityRNN.encode_target(exp_out_val[i], vocab), ManagedTensorMemoryStorageMode.CPU)
             } for i in range(num_batches_val)
         ]
 
