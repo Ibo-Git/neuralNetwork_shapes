@@ -143,10 +143,10 @@ class UtilityRNN():
         for file_name in files_names:
             with open(os.path.join(current_path, 'trump\\originals', file_name), 'r', encoding="UTF-8") as file:
                 file = file.read().replace('\n', '')
-            #file_all.append(file)
+            file_all.append(file)
         
-        #file_all = ''.join(file_all)
-        return file#file_all
+        file_all = ''.join(file_all)
+        return file_all
 
     def get_unique_words(text):
         unique_words = []
@@ -326,11 +326,11 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     # parameters dataloader
-    enc_in_seq_len = 5 #10
-    dec_in_seq_len = 5 #25
-    percent_val = 0.5
-    batch_size_train = 64 #128
-    batch_size_val = 64 #128
+    enc_in_seq_len = 10
+    dec_in_seq_len = 25
+    percent_val = 0.2
+    batch_size_train = 128
+    batch_size_val = 128
 
     # Set default device
     ManagedTensor.init(device)
