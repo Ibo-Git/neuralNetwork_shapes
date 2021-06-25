@@ -74,11 +74,12 @@ class ModelTransformer(nn.Module):
         self.val_ds = val_ds
         self.vocab = vocab
         self.device = device
-        self.criterion = nn.CrossEntropyLoss()
-        self.src_seq_len = train_ds[0][0].shape[1]
-        self.tgt_seq_len = train_ds[0][1].shape[1]
-        self.src_mask = torch.zeros((self.src_seq_len, self.src_seq_len)).type(torch.bool)
-        self.tgt_mask = self.generate_square_subsequent_mask(self.tgt_seq_len)
+        #self.criterion = nn.CrossEntropyLoss() # CrossEntropy
+        self.criterion = nn.BCELoss()
+        self.src_seq_len = train_ds[0]['enc_train'].shape[1]
+        self.tgt_seq_len = train_ds[0]['dec_train'].shape[1]
+        self.src_mask = torch.zeros((self.src_seq_len, self.src_seq_len)).type(torch.bool).to(device)
+        self.tgt_mask = self.generate_square_subsequent_mask(self.tgt_seq_len).to(device)
 
     def generate_square_subsequent_mask(self, sz):
         mask = (torch.triu(torch.ones((sz, sz))) == 1).transpose(0, 1)
@@ -86,8 +87,9 @@ class ModelTransformer(nn.Module):
         return mask.to(self.device)
 
     def train_batch(self, train_batch, optimizer, scheduler):
-        output = self(train_batch[0], train_batch[1])
-        loss = self.criterion(output.reshape(-1, output.shape[-1]), train_batch[3])
+        output = self(train_batch['enc_train'], train_batch['dec_train'])
+        loss = self.criterion(output, train_batch['exp_out_train_encoded'])
+        #loss = self.criterion(output.reshape(-1, output.shape[-1]), train_batch[3]) # CrossEntropy
         optimizer.zero_grad()     
         loss.backward()
         optimizer.step()
@@ -96,15 +98,16 @@ class ModelTransformer(nn.Module):
         return loss, output
 
     def evaluate(self):
-        output = self(self.val_ds[0], self.val_ds[1])
-        loss = self.criterion(output.reshape(-1, output.shape[-1]), self.val_ds[3])
+        output = self(self.val_ds['encoder_input'], self.val_ds['decoder_input'])
+        loss = self.criterion(output, self.val_ds['exp_out_train_encoded'])
+        #loss = self.criterion(output.reshape(-1, output.shape[-1]), self.val_ds['expected_output_flat'])  # CrossEntropy
         acc = self.get_accuracy(output)
         return loss, acc
 
     def get_accuracy(self, output):
         output = torch.argmax(output, 2).reshape(-1)
-        self.val_ds[3]
-        acc = sum(self.val_ds[3]==output).item()/len(self.val_ds[3])
+        self.val_ds['expected_output_flat']
+        acc = sum(self.val_ds['expected_output_flat'] == output).item() / len(self.val_ds['expected_output_flat'])
         return acc
 
     def start_training(self, num_epochs, optimizer, scheduler):
@@ -113,12 +116,14 @@ class ModelTransformer(nn.Module):
         for epoch in range(num_epochs):
             for num_batch in range(len(self.train_ds)):
                 train_loss, output = self.train_batch(self.train_ds[num_batch], optimizer, scheduler)
+
                 if num_batch % 1 == 0:
                     val_loss, val_acc = self.evaluate()
-                    exp_output_char = UtilityRNN.decode_char(self.train_ds[num_batch][2], self.vocab)
+                    exp_output_char = UtilityRNN.decode_char(self.train_ds[num_batch]['exp_out_train'], self.vocab)
                     output_char = UtilityRNN.decode_char(output, self.vocab)
+
                     print('Epoch:{}, Batch number: {}, Expected Output: {}, Output: {}, train_loss: {}, val_loss: {}, accuracy: {}'
-                    .format(epoch, num_batch, exp_output_char[0], output_char[0], train_loss, val_loss, val_acc))
+                        .format(epoch, num_batch, exp_output_char[0], output_char[0], train_loss, val_loss, val_acc))
 
 
 class UtilityRNN():
@@ -180,25 +185,50 @@ class UtilityRNN():
 
         return seq_index     
 
-    def dataloader(seq_index, percent_val, percent_test, batch_size, device, shuffle=True):
+    def dataloader(seq_index, percent_val, percent_test, batch_size, device, vocab, shuffle=True):
         # shuffle
         if shuffle: random.shuffle(seq_index)
+
         # extract encoder input, decoder input, expected output
         encoder_input = torch.LongTensor([seq_index[i][0] for i in range(len(seq_index))]).to(device)
-        decoder_intput = torch.LongTensor([seq_index[i][1] for i in range(len(seq_index))]).to(device)
+        decoder_input = torch.LongTensor([seq_index[i][1] for i in range(len(seq_index))]).to(device)
         expected_output = torch.LongTensor([seq_index[i][2] for i in range(len(seq_index))]).to(device)
+
         # get index for splitting into train, val, test
         idx_split_1 = math.ceil(math.ceil(len(seq_index)*(1-percent_val-percent_test))/batch_size)*batch_size
         idx_split_2 = math.ceil(len(seq_index)*(1-percent_test))
+
         # split into batches for training dataset
-        num_batches = idx_split_1//batch_size
+        num_batches = idx_split_1 // batch_size
         enc_train = encoder_input[:idx_split_1].reshape(num_batches, batch_size, -1)
-        dec_train = decoder_intput[:idx_split_1].reshape(num_batches, batch_size, -1)
+        dec_train = decoder_input[:idx_split_1].reshape(num_batches, batch_size, -1)
         exp_out_train = expected_output[:idx_split_1].reshape(num_batches, batch_size, -1)
+
         # get train, val and test
-        train_ds = [[enc_train[i], dec_train[i], exp_out_train[i], exp_out_train[i].reshape(-1)] for i in range(num_batches)]
-        val_ds = [encoder_input[idx_split_1:idx_split_2], decoder_intput[idx_split_1:idx_split_2], expected_output[idx_split_1:idx_split_2], expected_output[idx_split_1:idx_split_2].reshape(-1)]
-        test_ds = [encoder_input[idx_split_2:-1], decoder_intput[idx_split_2:-1], expected_output[idx_split_2:-1], expected_output[idx_split_1:idx_split_2].reshape(-1)]
+        train_ds = [{ 
+                'enc_train': enc_train[i], 
+                'dec_train': dec_train[i], 
+                'exp_out_train': exp_out_train[i], 
+                'exp_out_train_flat': exp_out_train[i].reshape(-1),
+                'exp_out_train_encoded': UtilityRNN.encode_target(exp_out_train[i], vocab).to(device)
+            } for i in range(num_batches)
+        ]
+            
+        val_ds = { 
+            'encoder_input': encoder_input[idx_split_1:idx_split_2], 
+            'decoder_input': decoder_input[idx_split_1:idx_split_2], 
+            'expected_output': expected_output[idx_split_1:idx_split_2], 
+            'expected_output_flat': expected_output[idx_split_1:idx_split_2].reshape(-1),
+            'exp_out_train_encoded': UtilityRNN.encode_target(expected_output[idx_split_1:idx_split_2], vocab).to(device) 
+        }
+
+        test_ds = { 
+            'encoder_input': encoder_input[idx_split_2:-1], 
+            'decoder_input': decoder_input[idx_split_2:-1], 
+            'expected_output':  expected_output[idx_split_2:-1],
+            'expected_output_flat':  expected_output[idx_split_1:idx_split_2].reshape(-1) 
+        }
+
         return train_ds, val_ds, test_ds
 
     def decode_char(vector, vocab):
@@ -216,8 +246,20 @@ class UtilityRNN():
         vocab = UtilityRNN.assign_index(unique_words)
         text = UtilityRNN.split_text(text)
         seq_index = UtilityRNN.text2index(text, enc_in_seq_len, dec_in_seq_len, vocab, device)
-        train_ds, val_ds, test_ds = UtilityRNN.dataloader(seq_index, percent_val, percent_test, batch_size, device, shuffle=True)
+        train_ds, val_ds, test_ds = UtilityRNN.dataloader(seq_index, percent_val, percent_test, batch_size, device, vocab, shuffle=True)
         return train_ds, val_ds, test_ds, vocab
+
+    def encode_target(vector, vocab):
+        # check dimensions of vector
+        if len(vector.shape) == 2: encodedVec = torch.zeros(vector.shape[1], vector.shape[0], len(vocab))
+        elif len(vector.shape) == 1: encodedVec = torch.zeros(vector.shape[1], 1, len(vocab))
+
+        vector = vector.permute(1, 0)
+        for batch in range(vector.shape[1]):
+            for entry in range(vector.shape[0]): 
+                encodedVec[entry][batch][vector[entry][batch]] = 1
+
+        return encodedVec.permute(1, 0, 2)
 
 
 def main():
@@ -227,8 +269,8 @@ def main():
     # parameters dataloader
     enc_in_seq_len = 10
     dec_in_seq_len = 25
-    percent_val = 0.01
-    percent_test = 0.2
+    percent_val = 0.10
+    percent_test = 0.01
     batch_size = 128
 
     train_ds, val_ds, test_ds, vocab = UtilityRNN.process_text(enc_in_seq_len, dec_in_seq_len, percent_val, percent_test, batch_size, device)
