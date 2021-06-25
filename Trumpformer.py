@@ -251,15 +251,12 @@ class UtilityRNN():
 
     def encode_target(vector, vocab):
         # check dimensions of vector
-        if len(vector.shape) == 2: encodedVec = torch.zeros(vector.shape[1], vector.shape[0], len(vocab))
-        elif len(vector.shape) == 1: encodedVec = torch.zeros(vector.shape[1], 1, len(vocab))
+        encodedVec = torch.zeros(vector.shape[0], vector.shape[1], len(vocab))
+        for batch in range(vector.shape[0]):
+            for entry in range(vector.shape[1]): 
+                encodedVec[batch][entry][vector[batch][entry]] = 1
 
-        vector = vector.permute(1, 0)
-        for batch in range(vector.shape[1]):
-            for entry in range(vector.shape[0]): 
-                encodedVec[entry][batch][vector[entry][batch]] = 1
-
-        return encodedVec.permute(1, 0, 2)
+        return encodedVec
 
 
 def main():
