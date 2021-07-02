@@ -114,8 +114,7 @@ class ModelTransformer(nn.Module):
         self.val_ds = val_ds
         self.vocab = vocab
         self.device = device
-        #self.criterion = nn.CrossEntropyLoss(ignore_index = self.vocab['<PAD>'])
-        self.criterion = nn.BCELoss()
+        self.criterion = nn.CrossEntropyLoss(ignore_index = self.vocab['<PAD>'])
         # model inputs
         self.tgt_seq_len = train_ds[0]['decoder_input'].shape[1]
         self.tgt_mask = self.generate_square_subsequent_mask(self.tgt_seq_len, self.tgt_seq_len)
@@ -131,8 +130,7 @@ class ModelTransformer(nn.Module):
         output = self(train_batch['decoder_input'])
 
         with train_batch['expected_output_encoded'] as exp_output_train:
-            loss = self.criterion(output, exp_output_train.tensor)
-            #loss = self.criterion(output.reshape(-1, output.shape[-1]), train_batch['expected_output_flat']) # CrossEntropy
+            loss = self.criterion(output.reshape(-1, output.shape[-1]), train_batch['expected_output_flat']) # CrossEntropy
 
         optimizer.zero_grad()     
         loss.backward()
@@ -150,8 +148,7 @@ class ModelTransformer(nn.Module):
             output = self(self.val_ds[i]['decoder_input'])
 
             with self.val_ds[i]['expected_output_encoded'] as exp_output_val:
-                loss = self.criterion(output, exp_output_val.tensor)
-                #loss = self.criterion(output.reshape(-1, output.shape[-1]), self.val_ds[i]['expected_output_flat']) # Crossentropy
+                loss = self.criterion(output.reshape(-1, output.shape[-1]), self.val_ds[i]['expected_output_flat']) # Crossentropy
 
             acc = self.get_accuracy(output, self.val_ds[i]['expected_output_flat'])
             val_loss.append(loss.item())
