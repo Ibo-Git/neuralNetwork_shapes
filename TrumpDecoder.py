@@ -237,12 +237,29 @@ class UtilityRNN():
             words[i] = nltk.word_tokenize(sentences[i])
         
         # words to index
-        index = [[vocab[word] for word in sentence] for sentence in words]
+        words_index = [[vocab[word] for word in sentence] for sentence in words]
 
-        return index
+        return words_index
 
 
     def dataloader(words_index, percent_val, batch_size_train, batch_size_val, device, vocab, shuffle=True):
+
+        # concatenate sentences to min length of 30            
+        min_length = 30
+        i = 0
+
+        while len(words_index[i]) < min_length or i != len(words_index):
+            words_index[i] = words_index[i] + words_index[i+1]
+            words_index.remove(words_index[i+1])
+            if len(words_index[i]) >= min_length: i += 1
+            if i == len(words_index): 
+                break
+
+        #remove everything above 95 percentile        
+        lengths = np.array([len(i) for i in words_index])
+        len_limit = int(np.percentile(lengths, 95))
+        words_index = [x for x in words_index if len(x)<=len_limit]
+
         # shuffle
         if shuffle: random.shuffle(words_index)
 
