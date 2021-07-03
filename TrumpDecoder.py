@@ -84,7 +84,7 @@ class PositionalEncoding(nn.Module):
 
 class ModelTransformer(nn.Module):
 
-    def __init__(self, tgt_vocab_size, embedding_size, n_heads, num_decoder_layers, dropout):
+    def __init__(self, tgt_vocab_size, embedding_size, n_heads, num_decoder_layers, dropout, device):
         self.embedding_size = embedding_size
         self.num_decoder_layers = num_decoder_layers
         super(ModelTransformer, self).__init__()
@@ -94,7 +94,7 @@ class ModelTransformer(nn.Module):
         
         self.transformer_decoder = [[] for i in range(self.num_decoder_layers)]
         for i in range(self.num_decoder_layers):
-            self.transformer_decoder[i] = TransformerBlock(embedding_size, n_heads, dropout)
+            self.transformer_decoder[i] = TransformerBlock(embedding_size, n_heads, dropout).to(device)
 
         self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
         self.softmax = nn.Softmax(dim=2)
@@ -117,11 +117,12 @@ class ModelTransformer(nn.Module):
         return out
 
 
-    def init_data(self, train_ds, val_ds, vocab, device):
+    def init_data(self, train_ds, val_ds, vocab, batch_size_train, device):
         # datasets
         self.train_ds = train_ds
         self.val_ds = val_ds
         self.vocab = vocab
+        self.batch_size_train = batch_size_train
         self.device = device
         self.criterion = nn.CrossEntropyLoss(ignore_index = self.vocab['<PAD>'])
         # model inputs
@@ -138,7 +139,7 @@ class ModelTransformer(nn.Module):
         output = self(train_batch['decoder_input'])
 
         #with train_batch['expected_output_flat'] as exp_output_train:
-            #loss = self.criterion(output.reshape(-1, output.shape[-1]), exp_output_train) # CrossEntropy
+        #    loss = self.criterion(output, exp_output_train) # CrossEntropy
         loss = self.criterion(output, train_batch['expected_output_flat']) # CrossEntropy
         optimizer.zero_grad()     
         loss.backward()
@@ -156,7 +157,7 @@ class ModelTransformer(nn.Module):
             output = self(self.val_ds[i]['decoder_input'])
 
             #with self.val_ds[i]['expected_output_flat'] as exp_output_val:
-                #loss = self.criterion(output.reshape(-1, output.shape[-1]), exp_output_val) # Crossentropy
+            #    loss = self.criterion(output, exp_output_val) # Crossentropy
             loss = self.criterion(output, self.val_ds[i]['expected_output_flat']) # Crossentropy
             acc = self.get_accuracy(output, self.val_ds[i]['expected_output_flat'])
             val_loss.append(loss.item())
@@ -167,7 +168,9 @@ class ModelTransformer(nn.Module):
 
     def get_accuracy(self, output, expected_output):
         output = torch.argmax(output, 1).reshape(-1)
-        acc = sum(expected_output == output).item() / len(expected_output)
+        no_pad_expected_output = expected_output[expected_output != self.vocab['<PAD>']]
+        no_pad_output = output[expected_output != self.vocab['<PAD>']]
+        acc = sum(no_pad_output == no_pad_expected_output).item() / len(no_pad_expected_output)
         return acc
 
 
@@ -182,7 +185,7 @@ class ModelTransformer(nn.Module):
                     val_loss, val_acc = self.evaluate()
                     exp_output_char = UtilityRNN.decode_char(self.train_ds[num_batch]['expected_output'], self.vocab)
                     output_char = torch.argmax(output, 1)
-                    output_char = output_char.reshape(10, self.tgt_seq_len)
+                    output_char = output_char.reshape(self.batch_size_train, self.tgt_seq_len)
                     output_char = UtilityRNN.decode_char(output_char, self.vocab)
 
                     print('Epoch:{}, Batch number: {}\n\nExpected Output: {}\n\nOutput: {}\n\ntrain_loss: {}, val_loss: {}, accuracy: {}\n\n\n'
@@ -388,11 +391,11 @@ def main():
     # define model
     embedding_size = 512
     tgt_vocab_size = len(vocab)
-    n_heads = 2
+    n_heads = 8
     num_decoder_layers = 5
-    dropout = 0.1
-    model = ModelTransformer(tgt_vocab_size, embedding_size, n_heads, num_decoder_layers, dropout).to(device)
-    model.init_data(train_ds, val_ds, vocab, device)
+    dropout = 0.05
+    model = ModelTransformer(tgt_vocab_size, embedding_size, n_heads, num_decoder_layers, dropout, device).to(device)
+    model.init_data(train_ds, val_ds, vocab, batch_size_train, device)
 
     # train the model
     num_epochs = 100
