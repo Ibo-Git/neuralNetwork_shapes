@@ -17,6 +17,7 @@ from typing import Sequence
 import cv2 as cv
 import matplotlib
 import matplotlib.pyplot as plt
+import nltk
 import numpy as np
 import torch
 import torch.nn as nn
@@ -61,11 +62,15 @@ class ModelTransformer(nn.Module):
         self.register_buffer('pe', pe)
 
     def forward(self, src, tgt):
+
+        src_padding_mask = (src == self.vocab['<PAD>'])
+        tgt_padding_mask = (tgt == self.vocab['<PAD>'])
+
         src = self.embedding(src)
         tgt = self.embedding(tgt)
         src = self.dropout_pos_enc(src + self.pe[:src.size(0), :])
         tgt = self.dropout_pos_enc(tgt + self.pe[:tgt.size(0), :])
-        out = self.transformer(src, tgt, src_mask=self.src_mask, tgt_mask=self.tgt_mask)
+        out = self.transformer(src, tgt, src_mask=self.src_mask, tgt_mask=self.tgt_mask, src_padding_mask=src_padding_mask, tgt_padding_mask=tgt_padding_mask)
         out = self.fc_out(out)
         out = self.softmax(out)
         return out
@@ -81,6 +86,7 @@ class ModelTransformer(nn.Module):
         self.tgt_seq_len = train_ds[0]['decoder_input'].shape[1]
         self.src_mask = torch.zeros((self.src_seq_len, self.src_seq_len)).type(torch.bool).to(device)
         self.tgt_mask = self.generate_square_subsequent_mask(self.tgt_seq_len).to(device)
+        
 
     def generate_square_subsequent_mask(self, sz):
         mask = (torch.triu(torch.ones((sz, sz))) == 1).transpose(0, 1)
@@ -111,7 +117,7 @@ class ModelTransformer(nn.Module):
             val_loss.append(loss.item())
             val_acc.append(acc)
 
-        return statistics.mean(val_acc), statistics.mean(val_loss)
+        return np.average(val_loss), np.average(val_acc)
 
     def get_accuracy(self, output, expected_output):
         output = torch.argmax(output, 2).reshape(-1)
@@ -150,17 +156,15 @@ class UtilityRNN():
 
     def get_unique_words(text):
         unique_words = []
-        text = re.sub('([.,!?"()])', r' \1 ', text)
-        text = re.sub('\s{2,}', ' ', text)
-        text = re.sub(r'([0-9]{1}) . ([0-9]{1})', r'\1.\2', text)
+        words = nltk.word_tokenize(text)
 
-        for word in text.split():
+        for word in words:
             if word not in unique_words: unique_words.append(word)
 
         return unique_words
 
     def assign_index(unique_words):
-        vocab = {'<SOS>': 0, '<EOS>': 1} #{'<PAD>': 0, '<UNK>': 1, '<SOS>': 2, '<EOS>': 3}
+        vocab = {'<SOS>': 0, '<EOS>': 1, '<PAD>': 2} #{'<PAD>': 0, '<UNK>': 1, '<SOS>': 2, '<EOS>': 3}
         for word in unique_words: vocab[word] = len(vocab)
         return vocab
 
@@ -170,6 +174,25 @@ class UtilityRNN():
         text = re.sub(r'([0-9]{1}) . ([0-9]{1})', r'\1.\2', text)
         text = list(text.split(" "))
         return text
+
+    def split_text_sentence(text):
+        sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
+        sentences = sent_detector.tokenize(text.strip())
+
+        # split sentences into words
+        words = [[] for i in range(len(sentences))] 
+        
+        for i in range(len(sentences)):
+            words[i] = nltk.word_tokenize(sentences[i])
+        
+        # find max len sentence and fill rest of the sentences with padding token
+        max_len = len(max(words, key=len))
+        
+        for i in range(len(sentences)):
+            num_pad = max_len - len(words[i])
+            words[i] = words[i]+(['<PAD>']*num_pad)
+
+        return words
 
     def text2index(text, enc_in_seq_len, dec_in_seq_len, vocab, device):
         # text -> sequence
@@ -184,13 +207,13 @@ class UtilityRNN():
             seq_text[num_sequence][1] = text[end_idx_enc:end_idx_dec]
             seq_text[num_sequence][2] = text[end_idx_enc:end_idx_dec]
 
+    def seq2index(seq_text, vocab):
         # sequence -> index
         seq_index = [[[vocab[word] for word in seqType] for seqType in seq_text[seq]] for seq in range(len(seq_text))]
 
         for i in range(len(seq_index)): 
             seq_index[i][1].insert(0,vocab['<SOS>'])
             seq_index[i][2].append(vocab['<EOS>'])
-
 
         return seq_index      
 
@@ -253,7 +276,7 @@ class UtilityRNN():
         text = UtilityRNN.read_dataset()
         unique_words = UtilityRNN.get_unique_words(text)
         vocab = UtilityRNN.assign_index(unique_words)
-        text = UtilityRNN.split_text(text)
+        text = UtilityRNN.split_text_sentence(text)
         seq_index = UtilityRNN.text2index(text, enc_in_seq_len, dec_in_seq_len, vocab, device)
         train_ds, val_ds = UtilityRNN.dataloader(seq_index, percent_val, percent_test, batch_size, device, vocab, shuffle=True)
         return train_ds, val_ds, vocab
