@@ -91,20 +91,29 @@ class ModelTransformer(nn.Module):
 
         self.embedding = nn.Embedding(tgt_vocab_size, embedding_size)
         self.pos_encoder = PositionalEncoding(embedding_size, dropout)
-        self.transformer_decoder = TransformerBlock(embedding_size, n_heads, dropout),
+        
+        self.transformer_decoder = [[] for i in range(self.num_decoder_layers)]
+        for i in range(self.num_decoder_layers):
+            self.transformer_decoder[i] = TransformerBlock(embedding_size, n_heads, dropout)
+
         self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
         self.softmax = nn.Softmax(dim=2)
+        self.flatten = nn.Flatten(start_dim=0, end_dim=1) 
+
 
     def forward(self, tgt):
         out = self.embedding(tgt)
         out = self.pos_encoder(out)
 
         tgt_padding_mask = (tgt == self.vocab['<PAD>'])
+
         for i in range(self.num_decoder_layers):
-            out = self.transformer_decoder(out, out, out, tgt_padding_mask, self.tgt_mask)
+            out = self.transformer_decoder[i](out, out, out, tgt_padding_mask, self.tgt_mask)
 
         out = self.fc_out(out)
-        out = self.softmax(out)
+        #out = self.softmax(out)
+
+        out = self.flatten(out)
         return out
 
 
@@ -118,7 +127,6 @@ class ModelTransformer(nn.Module):
         # model inputs
         self.tgt_seq_len = train_ds[0]['decoder_input'].shape[1]
         self.tgt_mask = self.generate_square_subsequent_mask(self.tgt_seq_len, self.tgt_seq_len)
-        
 
     def generate_square_subsequent_mask(self, tgt_seq_len, src_seq_len):
         mask = (torch.triu(torch.ones((tgt_seq_len, src_seq_len))) == 1).transpose(0, 1)
@@ -129,13 +137,13 @@ class ModelTransformer(nn.Module):
     def train_batch(self, train_batch, optimizer, scheduler):
         output = self(train_batch['decoder_input'])
 
-        with train_batch['expected_output_encoded'] as exp_output_train:
-            loss = self.criterion(output.reshape(-1, output.shape[-1]), train_batch['expected_output_flat']) # CrossEntropy
-
+        #with train_batch['expected_output_flat'] as exp_output_train:
+            #loss = self.criterion(output.reshape(-1, output.shape[-1]), exp_output_train) # CrossEntropy
+        loss = self.criterion(output, train_batch['expected_output_flat']) # CrossEntropy
         optimizer.zero_grad()     
         loss.backward()
         optimizer.step()
-        torch.nn.utils.clip_grad_norm_(self.parameters(), 0.5)
+        #torch.nn.utils.clip_grad_norm_(self.parameters(), 0.5)
         # scheduler.step()
         return loss, output
 
@@ -147,9 +155,9 @@ class ModelTransformer(nn.Module):
         for i in range(len(self.val_ds)):
             output = self(self.val_ds[i]['decoder_input'])
 
-            with self.val_ds[i]['expected_output_encoded'] as exp_output_val:
-                loss = self.criterion(output.reshape(-1, output.shape[-1]), self.val_ds[i]['expected_output_flat']) # Crossentropy
-
+            #with self.val_ds[i]['expected_output_flat'] as exp_output_val:
+                #loss = self.criterion(output.reshape(-1, output.shape[-1]), exp_output_val) # Crossentropy
+            loss = self.criterion(output, self.val_ds[i]['expected_output_flat']) # Crossentropy
             acc = self.get_accuracy(output, self.val_ds[i]['expected_output_flat'])
             val_loss.append(loss.item())
             val_acc.append(acc)
@@ -158,7 +166,7 @@ class ModelTransformer(nn.Module):
 
 
     def get_accuracy(self, output, expected_output):
-        output = torch.argmax(output, 2).reshape(-1)
+        output = torch.argmax(output, 1).reshape(-1)
         acc = sum(expected_output == output).item() / len(expected_output)
         return acc
 
@@ -173,7 +181,9 @@ class ModelTransformer(nn.Module):
                 if num_batch % 10 == 0:
                     val_loss, val_acc = self.evaluate()
                     exp_output_char = UtilityRNN.decode_char(self.train_ds[num_batch]['expected_output'], self.vocab)
-                    output_char = UtilityRNN.decode_char(output, self.vocab)
+                    output_char = torch.argmax(output, 1)
+                    output_char = output_char.reshape(10, self.tgt_seq_len)
+                    output_char = UtilityRNN.decode_char(output_char, self.vocab)
 
                     print('Epoch:{}, Batch number: {}\n\nExpected Output: {}\n\nOutput: {}\n\ntrain_loss: {}, val_loss: {}, accuracy: {}\n\n\n'
                         .format(epoch, num_batch, exp_output_char[0], output_char[0], train_loss, val_loss, val_acc))
@@ -223,13 +233,6 @@ class UtilityRNN():
         for i in range(len(sentences)):
             words[i] = nltk.word_tokenize(sentences[i])
         
-        # find max len sentence and fill rest of the sentences with padding token
-        max_len = len(max(words, key=len))
-        
-        for i in range(len(sentences)):
-            num_pad = max_len - len(words[i])
-            words[i] = words[i]+(['<PAD>']*num_pad)
-
         # words to index
         index = [[vocab[word] for word in sentence] for sentence in words]
 
@@ -241,12 +244,21 @@ class UtilityRNN():
         if shuffle: random.shuffle(words_index)
 
         # extract decoder input, expected output
-        decoder_input = words_index
-        expected_output = words_index
+        decoder_input = copy.deepcopy(words_index)
+        expected_output = copy.deepcopy(words_index)
 
         for i in range(len(words_index)): 
             decoder_input[i].insert(0, vocab['<SOS>'])
             expected_output[i].append(vocab['<EOS>'])
+
+         # find max len sentence and fill rest of the sentences with padding token
+        max_len = len(max(decoder_input, key=len))
+        
+        for i in range(len(words_index)):
+            num_pad = max_len - len(decoder_input[i])
+            decoder_input[i] = decoder_input[i]+([vocab['<PAD>']]*num_pad)
+            expected_output[i] = expected_output[i]+([vocab['<PAD>']]*num_pad)
+
 
         decoder_input = torch.LongTensor(decoder_input).to(device)
         expected_output = torch.LongTensor(expected_output).to(device)
@@ -270,7 +282,7 @@ class UtilityRNN():
                 'decoder_input': dec_in_train[i], 
                 'expected_output': exp_out_train[i], 
                 'expected_output_flat': exp_out_train[i].reshape(-1),
-                'expected_output_encoded':  ManagedTensor(UtilityRNN.encode_target(exp_out_train[i], vocab), ManagedTensorMemoryStorageMode.CPU)
+                #'expected_output_encoded':  ManagedTensor(UtilityRNN.encode_target(exp_out_train[i], vocab), ManagedTensorMemoryStorageMode.CPU)
             } for i in range(num_batches_train)
         ]
             
@@ -278,7 +290,7 @@ class UtilityRNN():
                 'decoder_input': dec_in_val[i], 
                 'expected_output': exp_out_val[i], 
                 'expected_output_flat': exp_out_val[i].reshape(-1),
-                'expected_output_encoded': ManagedTensor(UtilityRNN.encode_target(exp_out_val[i], vocab), ManagedTensorMemoryStorageMode.CPU)
+                #'expected_output_encoded': ManagedTensor(UtilityRNN.encode_target(exp_out_val[i], vocab), ManagedTensorMemoryStorageMode.CPU)
             } for i in range(num_batches_val)
         ]
 
@@ -294,9 +306,7 @@ class UtilityRNN():
 
 
     def decode_char(vector, vocab):
-        if len(vector.shape) == 3:
-            vector = torch.argmax(vector, 2)
-
+        
         key_list = list(vocab)
         decoded_vec = [[key_list[index] for index in batch] for batch in vector]
         #decoded_vec = np.reshape(decoded_vec, (vector.shape[0], vector.shape[1])).T
@@ -378,7 +388,7 @@ def main():
     # define model
     embedding_size = 512
     tgt_vocab_size = len(vocab)
-    n_heads = 8
+    n_heads = 2
     num_decoder_layers = 5
     dropout = 0.1
     model = ModelTransformer(tgt_vocab_size, embedding_size, n_heads, num_decoder_layers, dropout).to(device)
