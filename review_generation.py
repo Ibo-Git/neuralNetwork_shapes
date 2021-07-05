@@ -1,3 +1,4 @@
+from TrumpDecoder import ManagedTensorMemoryStorageMode
 import copy
 import itertools
 import math
@@ -128,7 +129,7 @@ class ModelTransformer(nn.Module):
         self.device = device
         self.criterion = nn.CrossEntropyLoss(ignore_index = self.vocab['<PAD>'])
         # model inputs
-        self.tgt_seq_len = train_ds[0]['decoder_input'].shape[1]
+        self.tgt_seq_len = train_ds[0]['decoder_input'].tensor.shape[1]
         self.tgt_mask = self.generate_square_subsequent_mask(self.tgt_seq_len, self.tgt_seq_len)
 
     def generate_square_subsequent_mask(self, tgt_seq_len, src_seq_len):
@@ -138,17 +139,16 @@ class ModelTransformer(nn.Module):
 
 
     def train_batch(self, train_batch, optimizer, scheduler):
-        output = self(train_batch['decoder_input'])
-
-        #with train_batch['expected_output_flat'] as exp_output_train:
-        #    loss = self.criterion(output, exp_output_train) # CrossEntropy
-        loss = self.criterion(output, train_batch['expected_output_flat']) # CrossEntropy
-        optimizer.zero_grad()     
-        loss.backward()
-        optimizer.step()
-        #torch.nn.utils.clip_grad_norm_(self.parameters(), 0.5)
-        # scheduler.step()
-        return loss, output
+        with train_batch['decoder_input'] as train_batch_decoder_input, train_batch['expected_output_flat'] as train_batch_expected_output_flat:
+            output = self(train_batch_decoder_input.tensor)
+            loss = self.criterion(output, train_batch_expected_output_flat.tensor) # CrossEntropy
+            optimizer.zero_grad()     
+            loss.backward()
+            optimizer.step()
+            #torch.nn.utils.clip_grad_norm_(self.parameters(), 0.5)
+            # scheduler.step()
+            return loss, output
+        
 
 
     def evaluate(self):
@@ -156,14 +156,12 @@ class ModelTransformer(nn.Module):
         val_acc = []
 
         for i in range(len(self.val_ds)):
-            output = self(self.val_ds[i]['decoder_input'])
-
-            #with self.val_ds[i]['expected_output_flat'] as exp_output_val:
-            #    loss = self.criterion(output, exp_output_val) # Crossentropy
-            loss = self.criterion(output, self.val_ds[i]['expected_output_flat']) # Crossentropy
-            acc = self.get_accuracy(output, self.val_ds[i]['expected_output_flat'])
-            val_loss.append(loss.item())
-            val_acc.append(acc)
+            with self.val_ds[i]['decoder_input'] as val_ds_decoder_input, self.val_ds[i]['expected_output_flat'] as val_ds_expected_output_flat:
+                output = self(val_ds_decoder_input.tensor)
+                loss = self.criterion(output, val_ds_expected_output_flat.tensor) # Crossentropy
+                acc = self.get_accuracy(output, val_ds_expected_output_flat.tensor)
+                val_loss.append(loss.item())
+                val_acc.append(acc)
 
         return np.average(val_loss), np.average(val_acc)
 
@@ -183,9 +181,9 @@ class ModelTransformer(nn.Module):
             for num_batch in range(len(self.train_ds)):
                 train_loss, output = self.train_batch(self.train_ds[num_batch], optimizer, scheduler)
 
-                if num_batch % 10 == 0:
+                if num_batch == len(self.train_ds) - 1:
                     val_loss, val_acc = self.evaluate()
-                    exp_output_char = UtilityTextProcessing.decode_char(self.train_ds[num_batch]['expected_output'], self.vocab)
+                    exp_output_char = UtilityTextProcessing.decode_char(self.train_ds[num_batch]['expected_output'].tensor, self.vocab)
                     output_char = torch.argmax(output, 1)
                     output_char = output_char.reshape(self.batch_size_train, self.tgt_seq_len)
                     output_char = UtilityTextProcessing.decode_char(output_char, self.vocab)
@@ -278,17 +276,17 @@ class UtilityTextProcessing():
 
         # get train, val and test
         train_ds = [{ 
-                'decoder_input': dec_in_train[i], 
-                'expected_output': exp_out_train[i], 
-                'expected_output_flat': exp_out_train[i].reshape(-1),
+                'decoder_input': ManagedTensor(dec_in_train[i], ManagedTensorMemoryStorageMode.CPU), 
+                'expected_output': ManagedTensor(exp_out_train[i], ManagedTensorMemoryStorageMode.CPU), 
+                'expected_output_flat': ManagedTensor(exp_out_train[i].reshape(-1), ManagedTensorMemoryStorageMode.CPU),
                 #'expected_output_encoded':  ManagedTensor(UtilityTextProcessing.encode_target(exp_out_train[i], vocab), ManagedTensorMemoryStorageMode.CPU)
             } for i in range(num_batches_train)
         ]
             
         val_ds = [{ 
-                'decoder_input': dec_in_val[i], 
-                'expected_output': exp_out_val[i], 
-                'expected_output_flat': exp_out_val[i].reshape(-1),
+                'decoder_input': ManagedTensor(dec_in_val[i], ManagedTensorMemoryStorageMode.CPU), 
+                'expected_output': ManagedTensor(exp_out_val[i], ManagedTensorMemoryStorageMode.CPU), 
+                'expected_output_flat': ManagedTensor(exp_out_val[i].reshape(-1), ManagedTensorMemoryStorageMode.CPU),
                 #'expected_output_encoded': ManagedTensor(UtilityTextProcessing.encode_target(exp_out_val[i], vocab), ManagedTensorMemoryStorageMode.CPU)
             } for i in range(num_batches_val)
         ]
@@ -382,17 +380,17 @@ def main():
     train_ds, val_ds, vocab = UtilityTextProcessing.process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device)
     
     # define model
-    embedding_size = 512
+    embedding_size = 256
     tgt_vocab_size = len(vocab)
     n_heads = 8
-    num_decoder_layers = 5
+    num_decoder_layers = 12
     dropout = 0.05
     model = ModelTransformer(tgt_vocab_size, embedding_size, n_heads, num_decoder_layers, dropout, device).to(device)
     model.init_data(train_ds, val_ds, vocab, batch_size_train, device)
 
     # train the model
     num_epochs = 100
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0005, betas=(0.9, 0.98), eps=1e-9)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
     model.start_training(num_epochs, optimizer, scheduler)
 
