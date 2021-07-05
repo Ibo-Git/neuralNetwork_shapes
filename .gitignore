@@ -3,6 +3,6 @@ data/
 __pycache__/
 textfiles/
 .vscode/
-trump/prepared/
+trump/
 *.pth
 opin_dataset/
