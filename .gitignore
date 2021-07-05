@@ -5,3 +5,4 @@ textfiles/
 .vscode/
 trump/prepared/
 *.pth
+opin_dataset/
