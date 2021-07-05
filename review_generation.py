@@ -214,6 +214,9 @@ class UtilityTextProcessing():
         
         file_all = [file.lower() for file in file_all]
         #text = re.sub('…', '.', text)
+        file_all = [re.sub(r'(.*?)/(.*?)', r'\1 / \2', file) for file in file_all]
+        file_all = [re.sub(r'(.*?)-(.*?)', r'\1 - \2', file) for file in file_all]
+        #file_all = [re.sub(r'(.*?).(.*?)', r'\1 . \2', file) for file in file_all]
         return file_all
 
 
@@ -234,7 +237,7 @@ class UtilityTextProcessing():
         words_index = [[vocab[word] for word in sub_text] for sub_text in words]
         return words_index, vocab
 
-    def dataloader(words_index, percent_val, batch_size_train, batch_size_val, device, vocab, shuffle=True):
+    def dataloader(words_index, percent_val, batch_size_train, batch_size_val, minibatch_size, device, vocab, shuffle=True):
 
         # shuffle
         if shuffle: random.shuffle(words_index)
@@ -265,13 +268,13 @@ class UtilityTextProcessing():
 
         # split into batches for training dataset
         num_batches_train = idx_split_1 // batch_size_train
-        dec_in_train = decoder_input[:idx_split_1].reshape(num_batches_train, batch_size_train, -1)
-        exp_out_train = expected_output[:idx_split_1].reshape(num_batches_train, batch_size_train, -1)
+        dec_in_train = decoder_input[:idx_split_1].reshape(num_batches_train, minibatch_size, batch_size_train//minibatch_size, -1)
+        exp_out_train = expected_output[:idx_split_1].reshape(num_batches_train, minibatch_size, batch_size_train//minibatch_size, -1)
 
         # split into batches for validation dataset
         num_batches_val = (idx_split_2 - idx_split_1) // batch_size_train
-        dec_in_val = decoder_input[idx_split_1:idx_split_2].reshape(num_batches_val, batch_size_val, -1)
-        exp_out_val = expected_output[idx_split_1:idx_split_2].reshape(num_batches_val, batch_size_val, -1)
+        dec_in_val = decoder_input[idx_split_1:idx_split_2].reshape(num_batches_val, minibatch_size, batch_size_val//minibatch_size, -1)
+        exp_out_val = expected_output[idx_split_1:idx_split_2].reshape(num_batches_val, minibatch_size, batch_size_val//minibatch_size, -1)
 
         # get train, val and test
         train_ds = [{ 
@@ -292,11 +295,11 @@ class UtilityTextProcessing():
 
         return train_ds, val_ds
 
-    def process_text(percent_val, batch_size_train, batch_size_val, device):
+    def process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device):
         text = UtilityTextProcessing.read_dataset()
         words, unique_words = UtilityTextProcessing.get_unique_words(text)
         words_index, vocab = UtilityTextProcessing.assign_index(words, unique_words)
-        train_ds, val_ds = UtilityTextProcessing.dataloader(words_index, percent_val, batch_size_train, batch_size_val, device, vocab, shuffle=True)
+        train_ds, val_ds = UtilityTextProcessing.dataloader(words_index, percent_val, batch_size_train, batch_size_val, minibatch_size, device, vocab, shuffle=True)
         return train_ds, val_ds, vocab
 
 
@@ -375,7 +378,8 @@ def main():
     percent_val = 0.2
     batch_size_train = 128
     batch_size_val = 128
-    train_ds, val_ds, vocab = UtilityTextProcessing.process_text(percent_val, batch_size_train, batch_size_val, device)
+    minibatch_size = 2
+    train_ds, val_ds, vocab = UtilityTextProcessing.process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device)
     
     # define model
     embedding_size = 512
