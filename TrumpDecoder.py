@@ -9,6 +9,8 @@ import shutil
 import statistics
 import string
 import tarfile
+from collections import OrderedDict
+from enum import Enum
 from multiprocessing import Process, freeze_support
 from os import listdir
 from os.path import isfile, join
@@ -40,7 +42,7 @@ from torchvision.transforms.transforms import LinearTransformation
 from torchvision.utils import make_grid, save_image
 
 from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
-from collections import OrderedDict
+
 
 class TransformerBlock(nn.Module):
 
@@ -342,7 +344,6 @@ class UtilityRNN():
         return encodedVec
 
 
-from enum import Enum
 
 
 class ManagedTensorMemoryStorageMode(Enum):
