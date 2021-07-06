@@ -1,9 +1,10 @@
-from TrumpDecoder import ManagedTensorMemoryStorageMode
 import copy
 import itertools
+import json
 import math
 import os
 import pathlib
+import pickle
 import random
 import re
 import shutil
@@ -43,6 +44,7 @@ from torchvision.transforms.transforms import LinearTransformation
 from torchvision.utils import make_grid, save_image
 
 from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
+from TrumpDecoder import ManagedTensorMemoryStorageMode
 
 
 class TransformerBlock(nn.Module):
@@ -189,8 +191,6 @@ class ModelTransformer(nn.Module):
 
 
     def start_training(self, num_epochs, optimizer, scheduler):
-        self.train()
-
 
         for epoch in range(num_epochs):
             for num_batch in range(len(self.train_ds)):
@@ -201,7 +201,7 @@ class ModelTransformer(nn.Module):
                     self.eval()
                     val_loss, val_acc = self.evaluate()
                     exp_output_char = UtilityTextProcessing.decode_char(self.train_ds[num_batch]['expected_output'][-1].tensor, self.vocab)
-                    output_reshaped = UtilityTextProcessing.reshape_output(output, self.batch_size_train, self.minibatch_size, self.tgt_seq_len)
+                    output_reshaped = UtilityTextProcessing.reshape_output(output.tensor, self.batch_size_train, self.minibatch_size, self.tgt_seq_len)
                     output_char = UtilityTextProcessing.decode_char(output_reshaped, self.vocab)
 
                     print('Epoch:{}, Batch number: {}\n\nExpected Output: {}\n\nOutput: {}\n\ntrain_loss: {}, val_loss: {}, accuracy: {}\n\n\n'
@@ -310,9 +310,25 @@ class UtilityTextProcessing():
 
 
     def process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device):
-        text = UtilityTextProcessing.read_dataset()
-        words, unique_words = UtilityTextProcessing.get_unique_words(text)
-        words_index, vocab = UtilityTextProcessing.assign_index(words, unique_words)
+        if os.path.isfile('review_filesprocessed_text.pkl') and os.path.isfile('vocab.pkl'):
+            file_1 = open('vocab.pkl', 'rb')
+            vocab = pickle.load(file_1)
+
+            file_2 = open('processed_text.pkl', 'rb')
+            words_index = pickle.load(file_2)
+
+        else:
+            text = UtilityTextProcessing.read_dataset()
+            words, unique_words = UtilityTextProcessing.get_unique_words(text)
+            words_index, vocab = UtilityTextProcessing.assign_index(words, unique_words)
+
+            with open("vocab.pkl", "wb") as file_1:
+                pickle.dump(vocab, file_1)
+
+            with open("processed_text.pkl", "wb") as file_2:
+                pickle.dump(words_index, file_2)
+
+
         train_ds, val_ds = UtilityTextProcessing.dataloader(words_index, percent_val, batch_size_train, batch_size_val, minibatch_size, device, vocab, shuffle=True)
         return train_ds, val_ds, vocab
 
