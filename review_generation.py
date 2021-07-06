@@ -142,21 +142,33 @@ class ModelTransformer(nn.Module):
 
 
     def train_batch(self, train_batch, optimizer, scheduler):
+        output = None
+        optimizer.zero_grad()
 
         total_loss = 0
+
         for i in range(self.minibatch_size):
             with train_batch['decoder_input'][i] as train_batch_decoder_input, train_batch['expected_output_flat'][i] as train_batch_expected_output_flat:
+                if output != None: del output
                 output = self(train_batch_decoder_input.tensor)
                 loss = self.criterion(output, train_batch_expected_output_flat.tensor) # CrossEntropy
-                total_loss += loss
+                total_loss += loss.item()
+                loss.backward()
+                
+                del loss
+                torch.cuda.empty_cache()
 
-        optimizer.zero_grad()     
-        total_loss.backward()
+        
+        
         optimizer.step()
         #torch.nn.utils.clip_grad_norm_(self.parameters(), 0.5)
         # scheduler.step()
-        output = ManagedTensor(output, ManagedTensorMemoryStorageMode.CPU)
-        return total_loss, output
+        output2 = ManagedTensor(output, ManagedTensorMemoryStorageMode.CPU)
+
+        del output
+        torch.cuda.empty_cache()
+
+        return total_loss / self.minibatch_size, output2
         
 
 
@@ -166,16 +178,19 @@ class ModelTransformer(nn.Module):
 
         for i in range(len(self.val_ds)):
             total_loss = 0
+            total_acc = 0
                 
             for j in range(self.minibatch_size):
                 with self.val_ds[i]['decoder_input'][j] as val_ds_decoder_input, self.val_ds[i]['expected_output_flat'][j] as val_ds_expected_output_flat:
                     output = self(val_ds_decoder_input.tensor)
                     loss = self.criterion(output, val_ds_expected_output_flat.tensor) # Crossentropy
-                    total_loss += loss
-                    acc = self.get_accuracy(output, val_ds_expected_output_flat.tensor)
+                    total_loss += loss.item()
+                    total_acc += self.get_accuracy(output, val_ds_expected_output_flat.tensor)
+                    del output, loss
+                    torch.cuda.empty_cache()
 
-            val_loss.append(total_loss.item())
-            val_acc.append(acc)
+            val_loss.append(total_loss / self.minibatch_size)
+            val_acc.append(total_acc / self.minibatch_size)
 
         return np.average(val_loss), np.average(val_acc)
 
@@ -197,11 +212,11 @@ class ModelTransformer(nn.Module):
                 self.train()
                 train_loss, output = self.train_batch(self.train_ds[num_batch], optimizer, scheduler)
 
-                if num_batch == 1:#len(self.train_ds) - 1:
+                if len(self.train_ds) - 1:
                     self.eval()
                     val_loss, val_acc = self.evaluate()
                     exp_output_char = UtilityTextProcessing.decode_char(self.train_ds[num_batch]['expected_output'][-1].tensor, self.vocab)
-                    output_reshaped = UtilityTextProcessing.reshape_output(output, self.batch_size_train, self.minibatch_size, self.tgt_seq_len)
+                    output_reshaped = UtilityTextProcessing.reshape_output(output.tensor, self.batch_size_train, self.minibatch_size, self.tgt_seq_len)
                     output_char = UtilityTextProcessing.decode_char(output_reshaped, self.vocab)
 
                     print('Epoch:{}, Batch number: {}\n\nExpected Output: {}\n\nOutput: {}\n\ntrain_loss: {}, val_loss: {}, accuracy: {}\n\n\n'
@@ -415,16 +430,16 @@ def main():
     # parameters dataloader
     #dec_in_seq_len = 25    # not needed since sequence length is now length of longest sentence
     percent_val = 0.2
-    batch_size_train = 8
-    batch_size_val = 8
-    minibatch_size = 4
+    batch_size_train = 512
+    batch_size_val = 512
+    minibatch_size = 16
     train_ds, val_ds, vocab = UtilityTextProcessing.process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device)
     
     # define model
-    embedding_size = 128
+    embedding_size = 512
     tgt_vocab_size = len(vocab)
-    n_heads = 4
-    num_decoder_layers = 1
+    n_heads = 8
+    num_decoder_layers = 12
     dropout = 0.05
     model = ModelTransformer(tgt_vocab_size, embedding_size, n_heads, num_decoder_layers, dropout, device).to(device)
     model.init_data(train_ds, val_ds, vocab, batch_size_train, minibatch_size, device)
