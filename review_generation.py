@@ -60,9 +60,11 @@ class TransformerBlock(nn.Module):
     
     def forward(self, query, key, value, tgt_padding_mask, tgt_attention_mask):
         out_attn, _ = self.masked_attention(query, key, value, key_padding_mask=tgt_padding_mask, attn_mask=tgt_attention_mask)
-        out_norm =  self.dropout(self.norm(out_attn + query))
-        out_ff = self.feed_forward(out_norm)
-        out = self.dropout(self.norm(out_norm + out_ff))
+        out_norm_1 = self.norm(out_attn + query)
+        out_dp_1 =  self.dropout(out_norm_1)
+        out_ff = self.feed_forward(out_dp_1)
+        out_norm_2 = self.norm(out_dp_1 + out_ff)
+        out = self.dropout(out_norm_2)
         return out
 
 
@@ -189,18 +191,18 @@ class ModelTransformer(nn.Module):
     def start_training(self, num_epochs, optimizer, scheduler):
         self.train()
 
+
         for epoch in range(num_epochs):
             for num_batch in range(len(self.train_ds)):
+                self.train()
                 train_loss, output = self.train_batch(self.train_ds[num_batch], optimizer, scheduler)
 
-                if num_batch == len(self.train_ds) - 1:
+                if num_batch == 1:#len(self.train_ds) - 1:
+                    self.eval()
                     val_loss, val_acc = self.evaluate()
-                    exp_output_char = UtilityTextProcessing.decode_char(self.train_ds[num_batch]['expected_output'].tensor, self.vocab)
-                    
-                    with output as output:
-                        output_char = torch.argmax(output.tensor, 1)
-                        output_char = output_char.reshape(self.batch_size_train, self.tgt_seq_len)
-                        output_char = UtilityTextProcessing.decode_char(output_char, self.vocab)
+                    exp_output_char = UtilityTextProcessing.decode_char(self.train_ds[num_batch]['expected_output'][-1].tensor, self.vocab)
+                    output_reshaped = UtilityTextProcessing.reshape_output(output, self.batch_size_train, self.minibatch_size, self.tgt_seq_len)
+                    output_char = UtilityTextProcessing.decode_char(output_reshaped, self.vocab)
 
                     print('Epoch:{}, Batch number: {}\n\nExpected Output: {}\n\nOutput: {}\n\ntrain_loss: {}, val_loss: {}, accuracy: {}\n\n\n'
                         .format(epoch, num_batch, exp_output_char[0], output_char[0], train_loss, val_loss, val_acc))
@@ -248,6 +250,7 @@ class UtilityTextProcessing():
         for word in unique_words: vocab[word] = len(vocab)
         words_index = [[vocab[word] for word in sub_text] for sub_text in words]
         return words_index, vocab
+
 
     def dataloader(words_index, percent_val, batch_size_train, batch_size_val, minibatch_size, device, vocab, shuffle=True):
 
@@ -305,6 +308,7 @@ class UtilityTextProcessing():
 
         return train_ds, val_ds
 
+
     def process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device):
         text = UtilityTextProcessing.read_dataset()
         words, unique_words = UtilityTextProcessing.get_unique_words(text)
@@ -313,12 +317,19 @@ class UtilityTextProcessing():
         return train_ds, val_ds, vocab
 
 
+    def reshape_output(output, batch_size, minibatch_size, tgt_seq_len):
+        # reshape from  [batch_size x sequence_length, vocab_size]
+        # to            [batch_size, sequence_length]
+        output = torch.argmax(output, 1)
+        output = output.reshape(batch_size//minibatch_size, tgt_seq_len)
+        return output
+
     def decode_char(vector, vocab):
-        
+        # input vector shape: [batch_size, sequence_length]
         key_list = list(vocab)
         decoded_vec = [[key_list[index] for index in batch] for batch in vector]
-        #decoded_vec = np.reshape(decoded_vec, (vector.shape[0], vector.shape[1])).T
         return decoded_vec
+
 
     def encode_target(vector, vocab):
         # check dimensions of vector
@@ -328,6 +339,24 @@ class UtilityTextProcessing():
                 encodedVec[batch][entry][vector[batch][entry]] = 1
 
         return encodedVec
+
+
+    def plot_attention_weights(model_input_decoded, model_output_decoded, attention_head_weights):
+        in_tokens = tf.convert_to_tensor([sentence])
+        in_tokens = tokenizers.pt.tokenize(in_tokens).to_tensor()
+        in_tokens = tokenizers.pt.lookup(in_tokens)[0]
+        in_tokens
+
+        fig = plt.figure(figsize=(16, 8))
+        for h, head in enumerate(attention_head_weights):
+            ax = fig.add_subplot(2, 4, h+1)
+
+            plot_attention_head(in_tokens, translated_tokens, head)
+
+            ax.set_xlabel(f'Head {h+1}')
+
+        plt.tight_layout()
+        plt.show()
 
 
 class ManagedTensorMemoryStorageMode(Enum):
@@ -386,16 +415,16 @@ def main():
     # parameters dataloader
     #dec_in_seq_len = 25    # not needed since sequence length is now length of longest sentence
     percent_val = 0.2
-    batch_size_train = 128
-    batch_size_val = 128
+    batch_size_train = 8
+    batch_size_val = 8
     minibatch_size = 4
     train_ds, val_ds, vocab = UtilityTextProcessing.process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device)
     
     # define model
-    embedding_size = 256
+    embedding_size = 128
     tgt_vocab_size = len(vocab)
-    n_heads = 8
-    num_decoder_layers = 12
+    n_heads = 4
+    num_decoder_layers = 1
     dropout = 0.05
     model = ModelTransformer(tgt_vocab_size, embedding_size, n_heads, num_decoder_layers, dropout, device).to(device)
     model.init_data(train_ds, val_ds, vocab, batch_size_train, minibatch_size, device)
