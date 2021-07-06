@@ -341,22 +341,22 @@ class UtilityTextProcessing():
         return encodedVec
 
 
-    def plot_attention_weights(model_input_decoded, model_output_decoded, attention_head_weights):
-        in_tokens = tf.convert_to_tensor([sentence])
-        in_tokens = tokenizers.pt.tokenize(in_tokens).to_tensor()
-        in_tokens = tokenizers.pt.lookup(in_tokens)[0]
-        in_tokens
-
-        fig = plt.figure(figsize=(16, 8))
-        for h, head in enumerate(attention_head_weights):
-            ax = fig.add_subplot(2, 4, h+1)
-
-            plot_attention_head(in_tokens, translated_tokens, head)
-
-            ax.set_xlabel(f'Head {h+1}')
-
-        plt.tight_layout()
-        plt.show()
+#    def plot_attention_weights(model_input_decoded, model_output_decoded, attention_head_weights):
+#        in_tokens = tf.convert_to_tensor([sentence])
+#        in_tokens = tokenizers.pt.tokenize(in_tokens).to_tensor()
+#        in_tokens = tokenizers.pt.lookup(in_tokens)[0]
+#        in_tokens
+#
+#        fig = plt.figure(figsize=(16, 8))
+#        for h, head in enumerate(attention_head_weights):
+#            ax = fig.add_subplot(2, 4, h+1)
+#
+#            plot_attention_head(in_tokens, translated_tokens, head)
+#
+#            ax.set_xlabel(f'Head {h+1}')
+#
+#       plt.tight_layout()
+#        plt.show()
 
 
 class ManagedTensorMemoryStorageMode(Enum):
