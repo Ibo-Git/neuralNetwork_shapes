@@ -46,6 +46,8 @@ from torchvision.utils import make_grid, save_image
 from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
 from TrumpDecoder import ManagedTensorMemoryStorageMode
 
+import gc
+
 
 class TransformerBlock(nn.Module):
 
@@ -144,33 +146,24 @@ class ModelTransformer(nn.Module):
 
 
     def train_batch(self, train_batch, optimizer, scheduler):
-        output = None
         optimizer.zero_grad()
 
         total_loss = 0
 
         for i in range(self.minibatch_size):
             with train_batch['decoder_input'][i] as train_batch_decoder_input, train_batch['expected_output_flat'][i] as train_batch_expected_output_flat:
-                if output != None: del output
                 output = self(train_batch_decoder_input.tensor)
                 loss = self.criterion(output, train_batch_expected_output_flat.tensor) # CrossEntropy
-                total_loss += loss.item()
+                total_loss += loss.detach().item()
                 loss.backward()
-                
-                del loss
-                torch.cuda.empty_cache()
-
+                output = output.detach()
+                loss = loss.detach()
         
-        
-        optimizer.step()
-        #torch.nn.utils.clip_grad_norm_(self.parameters(), 0.5)
-        # scheduler.step()
-        output2 = ManagedTensor(output, ManagedTensorMemoryStorageMode.CPU)
-
-        del output
+        del loss
         torch.cuda.empty_cache()
 
-        return total_loss / self.minibatch_size, output2
+        optimizer.step()
+        return total_loss / self.minibatch_size, output
         
 
 
@@ -212,15 +205,19 @@ class ModelTransformer(nn.Module):
                 self.train()
                 train_loss, output = self.train_batch(self.train_ds[num_batch], optimizer, scheduler)
 
-                if len(self.train_ds) - 1:
+                if num_batch == len(self.train_ds) - 1:
                     self.eval()
                     val_loss, val_acc = self.evaluate()
                     exp_output_char = UtilityTextProcessing.decode_char(self.train_ds[num_batch]['expected_output'][-1].tensor, self.vocab)
-                    output_reshaped = UtilityTextProcessing.reshape_output(output.tensor, self.batch_size_train, self.minibatch_size, self.tgt_seq_len)
+                    output_reshaped = UtilityTextProcessing.reshape_output(output, self.batch_size_train, self.minibatch_size, self.tgt_seq_len)
                     output_char = UtilityTextProcessing.decode_char(output_reshaped, self.vocab)
 
                     print('Epoch:{}, Batch number: {}\n\nExpected Output: {}\n\nOutput: {}\n\ntrain_loss: {}, val_loss: {}, accuracy: {}\n\n\n'
                         .format(epoch, num_batch, exp_output_char[0], output_char[0], train_loss, val_loss, val_acc))
+                
+                del output
+                torch.cuda.empty_cache()
+                gc.collect()
 
 
 class UtilityTextProcessing():
@@ -325,7 +322,7 @@ class UtilityTextProcessing():
 
 
     def process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device):
-        if os.path.isfile('review_filesprocessed_text.pkl') and os.path.isfile('vocab.pkl'):
+        if os.path.isfile('processed_text.pkl') and os.path.isfile('vocab.pkl'):
             file_1 = open('vocab.pkl', 'rb')
             vocab = pickle.load(file_1)
 
@@ -446,23 +443,23 @@ def main():
     # parameters dataloader
     #dec_in_seq_len = 25    # not needed since sequence length is now length of longest sentence
     percent_val = 0.2
-    batch_size_train = 512
-    batch_size_val = 512
+    batch_size_train = 128
+    batch_size_val = 128
     minibatch_size = 16
     train_ds, val_ds, vocab = UtilityTextProcessing.process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device)
     
     # define model
-    embedding_size = 512
+    embedding_size = 1024
     tgt_vocab_size = len(vocab)
     n_heads = 8
     num_decoder_layers = 12
-    dropout = 0.05
+    dropout = 0.002
     model = ModelTransformer(tgt_vocab_size, embedding_size, n_heads, num_decoder_layers, dropout, device).to(device)
     model.init_data(train_ds, val_ds, vocab, batch_size_train, minibatch_size, device)
 
     # train the model
     num_epochs = 100
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0005, betas=(0.9, 0.98), eps=1e-9)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
     model.start_training(num_epochs, optimizer, scheduler)
 
