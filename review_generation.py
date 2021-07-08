@@ -230,21 +230,20 @@ class UtilityTextProcessing():
 
         for file_name in files_names:
             with open(os.path.join(current_path, 'opin_dataset\\', data_type, file_name), 'r') as file:
+                file = file.read
+                file = file.lower()
+                file = re.sub(r'(.*?)/(.*?)', r'\1 / \2', file)
+                file = re.sub(r'(.*?)-(.*?)', r'\1 - \2', file)
+
                 if data_type == 'car_data':
-                    file = file.read().replace('\n', '')
-                    file = file.lower()
-                    file = re.sub(r'(.*?)/(.*?)', r'\1 / \2', file)
-                    file = re.sub(r'(.*?)-(.*?)', r'\1 - \2', file)
+                    file = file.replace('\n', '')
                     matches = re.findall(r'<TEXT>.+?</TEXT>', file)
                     textfile = []
                     for sublist in matches:
                         textfile.append(re.sub(r'<TEXT>|</TEXT>', '', sublist))
                         
                 elif data_type == 'hotel_data':
-                    file = file.read().replace('\t', '')
-                    file = file.lower()
-                    file = re.sub(r'(.*?)/(.*?)', r'\1 / \2', file)
-                    file = re.sub(r'(.*?)-(.*?)', r'\1 - \2', file)
+                    file = file.replace('\t', '')
                     textfile = file.split('\n')
                 
                 
