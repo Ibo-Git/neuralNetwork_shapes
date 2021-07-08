@@ -232,6 +232,9 @@ class UtilityTextProcessing():
             with open(os.path.join(current_path, 'opin_dataset\\', data_type, file_name), 'r') as file:
                 if data_type == 'car_data':
                     file = file.read().replace('\n', '')
+                    file = file.lower()
+                    file = re.sub(r'(.*?)/(.*?)', r'\1 / \2', file)
+                    file = re.sub(r'(.*?)-(.*?)', r'\1 - \2', file)
                     matches = re.findall(r'<TEXT>.+?</TEXT>', file)
                     textfile = []
                     for sublist in matches:
@@ -239,11 +242,12 @@ class UtilityTextProcessing():
                         
                 elif data_type == 'hotel_data':
                     file = file.read().replace('\t', '')
+                    file = file.lower()
+                    file = re.sub(r'(.*?)/(.*?)', r'\1 / \2', file)
+                    file = re.sub(r'(.*?)-(.*?)', r'\1 - \2', file)
                     textfile = file.split('\n')
                 
-                textfile = textfile.lower()
-                textfile = re.sub(r'(.*?)/(.*?)', r'\1 / \2', textfile)
-                textfile = re.sub(r'(.*?)-(.*?)', r'\1 - \2', textfile)
+                
 
             file_all = file_all + textfile
         return file_all
