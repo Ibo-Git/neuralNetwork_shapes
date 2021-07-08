@@ -240,17 +240,12 @@ class UtilityTextProcessing():
                 elif data_type == 'hotel_data':
                     file = file.read().replace('\t', '')
                     textfile = file.split('\n')
-                    
-
-
+                
+                textfile = textfile.lower()
+                textfile = re.sub(r'(.*?)/(.*?)', r'\1 / \2', textfile)
+                textfile = re.sub(r'(.*?)-(.*?)', r'\1 - \2', textfile)
 
             file_all = file_all + textfile
-
-        file_all = [file.lower() for file in file_all]
-        #text = re.sub('…', '.', text)
-        file_all = [re.sub(r'(.*?)/(.*?)', r'\1 / \2', file) for file in file_all]
-        file_all = [re.sub(r'(.*?)-(.*?)', r'\1 - \2', file) for file in file_all]
-        #file_all = [re.sub(r'(.*?).(.*?)', r'\1 . \2', file) for file in file_all]
         return file_all
 
 
