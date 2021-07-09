@@ -1,4 +1,5 @@
 import copy
+import gc
 import itertools
 import json
 import math
@@ -11,8 +12,9 @@ import shutil
 import statistics
 import string
 import tarfile
+import time
 from collections import OrderedDict
-from enum import Enum
+from enum import Enum, unique
 from multiprocessing import Process, freeze_support
 from os import listdir
 from os.path import isfile, join
@@ -29,6 +31,8 @@ import torch.nn.functional as F
 import torchvision
 from IPython.display import Image
 from IPython.lib.display import ScribdDocument
+from langdetect import detect
+from spellchecker import SpellChecker
 from torch import are_deterministic_algorithms_enabled, optim
 from torch._C import device
 from torch.nn.modules.activation import ReLU
@@ -45,8 +49,6 @@ from torchvision.utils import make_grid, save_image
 
 from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
 from TrumpDecoder import ManagedTensorMemoryStorageMode
-
-import gc
 
 
 class TransformerBlock(nn.Module):
@@ -123,7 +125,6 @@ class ModelTransformer(nn.Module):
             #UtilityTextProcessing.plot_attention_head(tgt, attn_head_weights_all['decoder_layer_1'][1].detach(), vocab=self.vocab)
        
         out = self.fc_out(out)
-        #out = self.softmax(out)
 
         out = self.flatten(out)
         return out#, attn_head_weights_all
@@ -223,6 +224,7 @@ class ModelTransformer(nn.Module):
                 gc.collect()
 
 
+
 class UtilityTextProcessing():
 
     def read_dataset():
@@ -246,22 +248,58 @@ class UtilityTextProcessing():
                         textfile.append(re.sub(r'<TEXT>|</TEXT>', '', sublist))
                         
                 elif data_type == 'hotel_data':
-                    file = file.replace('\t', '')
-                    textfile = file.split('\n')
+                    file = file.read().replace('\t', '')
+                    file = file.lower()
+                    #file = re.sub(r'([\w\d]+)\/([\w\d]+)\g', r'\1 / \2', file)
+                    #file = re.sub(r'([\w\d]+)\-([\w\d]+)\g', r'\1 - \2', file)
+                    #file = re.sub(r'([\w]+)([\-\/\./]){1}([\w]+)', r'\1 \2 \3', file)
+                    file = re.sub(r'([\-\/\.—]){1}([\w]+)', r'\1 \2', file)
+                    file = re.sub(r'([\w]+)([\-\/\.—]){1}', r'\1 \2', file)
+                    file = re.sub(r'([\d]+)([a-zA-Z]+)', r'\1 \2', file)
+                    file = re.sub(r'([a-zA-Z]+)([\d]+)', r'\1 \2', file)
+                    textfile = list(filter(lambda x: len(x.strip()) > 0 and len(x) < 600, file.split('\n')))
+                    textfile = list(filter(lambda x: detect(x) == 'en', textfile))
+
+                    if file_name == 'china_beijing_oakwood_residence_beijing.txt':
+                        break
 
             file_all = file_all + textfile
         return file_all
 
 
     def get_unique_words(text):
-        unique_words = []
+        unique_words = set()
+        unique_words_indices = {}
         words = [nltk.word_tokenize(sub_text) for sub_text in text]
+        
+        for (i, sub_text) in enumerate(words):
+            for (j, word) in enumerate(sub_text):
+                if word not in unique_words: unique_words.add(word)
 
-        for sub_text in words:
-            for word in sub_text:
-                if word not in unique_words: unique_words.append(word)
+                if word not in unique_words_indices: unique_words_indices[word] = [(i, j)]
+                else: unique_words_indices[word].append((i, j))
 
-        return words, unique_words
+        
+        spell = SpellChecker()
+        spell.known('n\'t')
+        misspelled = spell.unknown(unique_words)
+
+        for word in misspelled:
+            correctedWord = spell.correction(word)
+
+            if correctedWord == word: 
+                correctedWord = '<UNK>'
+
+            # Update unique_words
+            unique_words.remove(word)
+            if correctedWord not in unique_words: unique_words.add(correctedWord)
+
+            # Replace all occurances of word in words
+            for occurance in unique_words_indices[word]:
+                words[occurance[0]][occurance[1]] = correctedWord
+
+
+        return words, list(unique_words)
 
 
     def assign_index(words, unique_words):
@@ -349,6 +387,8 @@ class UtilityTextProcessing():
 
 
         train_ds, val_ds = UtilityTextProcessing.dataloader(words_index, percent_val, batch_size_train, batch_size_val, minibatch_size, device, vocab, shuffle=True)
+        #train_ds = None
+        #val_ds = None
         return train_ds, val_ds, vocab
 
 
@@ -463,18 +503,24 @@ def main():
 
     # parameters dataloader
     #dec_in_seq_len = 25    # not needed since sequence length is now length of longest sentence
-    percent_val = 0.2
+    percent_val = 0.05
     batch_size_train = 128
     batch_size_val = 128
-    minibatch_size = 16
+    minibatch_size = 2
     train_ds, val_ds, vocab = UtilityTextProcessing.process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device)
     
+    #with open('train_ds_128_1.pkl', 'rb') as file_1:
+    #    train_ds = pickle.load(file_1)
+
+    #with open('val_ds_128_1.pkl', 'rb') as file_2:
+    #    val_ds = pickle.load(file_2)
+
     # define model
-    embedding_size = 1024
+    embedding_size = 512
     tgt_vocab_size = len(vocab)
     n_heads = 8
     num_decoder_layers = 12
-    dropout = 0.002
+    dropout = 0
     model = ModelTransformer(tgt_vocab_size, embedding_size, n_heads, num_decoder_layers, dropout, device).to(device)
     model.init_data(train_ds, val_ds, vocab, batch_size_train, minibatch_size, device)
 
