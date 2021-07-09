@@ -6,3 +6,5 @@ textfiles/
 trump/
 *.pth
 opin_dataset/
+processed_text.pkl
+vocab.pkl
