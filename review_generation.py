@@ -63,13 +63,13 @@ class TransformerBlock(nn.Module):
         self.dropout = nn.Dropout(dropout)
     
     def forward(self, query, key, value, tgt_padding_mask, tgt_attention_mask):
-        out_attn, _ = self.masked_attention(query, key, value, key_padding_mask=tgt_padding_mask, attn_mask=tgt_attention_mask)
+        out_attn, attn_head_weights = self.masked_attention(query, key, value, key_padding_mask=tgt_padding_mask, attn_mask=tgt_attention_mask)
         out_norm_1 = self.norm(out_attn + query)
         out_dp_1 =  self.dropout(out_norm_1)
         out_ff = self.feed_forward(out_dp_1)
         out_norm_2 = self.norm(out_dp_1 + out_ff)
         out = self.dropout(out_norm_2)
-        return out
+        return out, attn_head_weights
 
 
 class PositionalEncoding(nn.Module):
@@ -116,14 +116,17 @@ class ModelTransformer(nn.Module):
 
         tgt_padding_mask = (tgt == self.vocab['<PAD>'])
 
+        attn_head_weights_all = {}
         for i in range(self.num_decoder_layers):
-            out = self.transformer_decoder[i](out, out, out, tgt_padding_mask, self.tgt_mask)
-
+            out, attn_head_weights = self.transformer_decoder[i](out, out, out, tgt_padding_mask, self.tgt_mask)
+            attn_head_weights_all['decoder_layer_'+str(i+1)] = attn_head_weights
+            #UtilityTextProcessing.plot_attention_head(tgt, attn_head_weights_all['decoder_layer_1'][1].detach(), vocab=self.vocab)
+       
         out = self.fc_out(out)
         #out = self.softmax(out)
 
         out = self.flatten(out)
-        return out
+        return out#, attn_head_weights_all
 
 
     def init_data(self, train_ds, val_ds, vocab, batch_size_train, minibatch_size, device):
@@ -230,7 +233,7 @@ class UtilityTextProcessing():
 
         for file_name in files_names:
             with open(os.path.join(current_path, 'opin_dataset\\', data_type, file_name), 'r') as file:
-                file = file.read
+                file = file.read()
                 file = file.lower()
                 file = re.sub(r'(.*?)/(.*?)', r'\1 / \2', file)
                 file = re.sub(r'(.*?)-(.*?)', r'\1 - \2', file)
@@ -245,8 +248,6 @@ class UtilityTextProcessing():
                 elif data_type == 'hotel_data':
                     file = file.replace('\t', '')
                     textfile = file.split('\n')
-                
-                
 
             file_all = file_all + textfile
         return file_all
@@ -389,8 +390,22 @@ class UtilityTextProcessing():
 #
 #            ax.set_xlabel(f'Head {h+1}')
 #
-#       plt.tight_layout()
+#        plt.tight_layout()
 #        plt.show()
+
+    def plot_attention_head(in_tokens, attention, vocab):
+
+        sequence_length = 10
+        ax = plt.gca()
+        attention = attention[0:sequence_length, 0:sequence_length]
+        ax.matshow(attention)
+        ax.set_xticks(range(sequence_length))
+        ax.set_yticks(range(sequence_length))
+
+        labels = UtilityTextProcessing.decode_char(in_tokens, vocab)
+        ax.set_xticklabels(labels[1][0:sequence_length], rotation=90)
+        ax.set_yticklabels(labels[1][0:sequence_length],)
+
 
 
 class ManagedTensorMemoryStorageMode(Enum):
