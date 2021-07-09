@@ -246,7 +246,6 @@ class UtilityTextProcessing():
                         textfile.append(re.sub(r'<TEXT>|</TEXT>', '', sublist))
                         
                 elif data_type == 'hotel_data':
-<<<<<<< HEAD
                     file = file.read().replace('\t', '')
                     file = file.lower()
                     #file = re.sub(r'([\w\d]+)\/([\w\d]+)\g', r'\1 / \2', file)
@@ -261,12 +260,6 @@ class UtilityTextProcessing():
 
                     if file_name == 'china_beijing_oakwood_residence_beijing.txt':
                         break
-=======
-                    file = file.replace('\t', '')
-                    textfile = file.split('\n')
-                
-                
->>>>>>> c1be4bd465d3bba12db437071a4b974ee82e42f0
 
             file_all = file_all + textfile
         return file_all
