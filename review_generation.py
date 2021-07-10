@@ -178,27 +178,28 @@ class ModelTransformer(nn.Module):
     def evaluate(self):
         val_loss = []
         val_acc = []
-
+        num_minibatches = self.batch_size_val//self.minibatch_size
+        
         for num_batch, (decoder_input, expected_output, expected_output_flat) in enumerate(self.val_dl):
             total_loss = 0
             total_acc = 0
                 
-            for num_minibatch in range(self.batch_size_val//self.minibatch_size):
+            for num_minibatch in range(num_minibatches):
                 with decoder_input[num_minibatch] as decoder_input_mb,  expected_output_flat[num_minibatch] as expected_output_flat_mb:
                     output = self(decoder_input_mb.tensor)
                     loss = self.criterion(output, expected_output_flat_mb.tensor) # Crossentropy
                     total_loss += loss.item()
                     total_acc += self.get_accuracy(output, expected_output_flat_mb.tensor)
 
-                    if num_batch == len(self.val_dl)-1 and num_minibatch == self.batch_size_val//self.minibatch_size-1:
+                    if num_batch == len(self.val_dl)-1 and num_minibatch == num_minibatches-1:
                         del loss
                     else:
                         del output, loss
 
                     torch.cuda.empty_cache()
 
-            val_loss.append(total_loss / self.minibatch_size)
-            val_acc.append(total_acc / self.minibatch_size)
+            val_loss.append(total_loss / num_minibatches)
+            val_acc.append(total_acc / num_minibatches)
 
         self.log_val(
             torch.argmax(output, 1)[decoder_input_mb.tensor.shape[1]:], 
@@ -352,7 +353,7 @@ class UtilityTextProcessing():
                 pickle.dump(words_index, file_2)
 
 
-        idx_split_1 = math.ceil(math.ceil(len(words_index)*(1-percent_val))/batch_size_train)*batch_size_train
+        idx_split_1 = math.floor(math.floor(len(words_index)*(1-percent_val))/batch_size_train)*batch_size_train
         idx_split_2 = idx_split_1 + math.floor(len(words_index[idx_split_1:-1])/batch_size_val)*batch_size_val
 
         train_ds = words_index[:idx_split_1]
