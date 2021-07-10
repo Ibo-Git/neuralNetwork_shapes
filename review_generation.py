@@ -2,6 +2,7 @@ import copy
 import gc
 import itertools
 import json
+from json import decoder
 import math
 import os
 import pathlib
@@ -37,6 +38,7 @@ from torch import are_deterministic_algorithms_enabled, optim
 from torch._C import device
 from torch.nn.modules.activation import ReLU
 from torch.nn.modules.batchnorm import BatchNorm2d
+from torch.nn.utils.rnn import pad_sequence
 from torch.optim import optimizer
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data import DataLoader, Dataset, dataloader, random_split
@@ -115,12 +117,14 @@ class ModelTransformer(nn.Module):
     def forward(self, tgt):
         out = self.embedding(tgt)
         out = self.pos_encoder(out)
-
+        # model inputs
+        tgt_seq_len = tgt.shape[1]
+        tgt_attn_mask = self.generate_square_subsequent_mask(tgt_seq_len, tgt_seq_len)
         tgt_padding_mask = (tgt == self.vocab['<PAD>'])
 
         attn_head_weights_all = {}
         for i in range(self.num_decoder_layers):
-            out, attn_head_weights = self.transformer_decoder[i](out, out, out, tgt_padding_mask, self.tgt_mask)
+            out, attn_head_weights = self.transformer_decoder[i](out, out, out, tgt_padding_mask, tgt_attn_mask)
             attn_head_weights_all['decoder_layer_'+str(i+1)] = attn_head_weights
             #UtilityTextProcessing.plot_attention_head(tgt, attn_head_weights_all['decoder_layer_1'][1].detach(), vocab=self.vocab)
        
@@ -130,18 +134,17 @@ class ModelTransformer(nn.Module):
         return out#, attn_head_weights_all
 
 
-    def init_data(self, train_ds, val_ds, vocab, batch_size_train, minibatch_size, device):
+    def init_data(self, train_dl, val_dl, vocab, batch_size_train, batch_size_val, minibatch_size, device):
         # datasets
-        self.train_ds = train_ds
-        self.val_ds = val_ds
+        self.train_dl = train_dl
+        self.val_dl = val_dl
         self.vocab = vocab
         self.batch_size_train = batch_size_train
+        self.batch_size_val = batch_size_val
         self.minibatch_size = minibatch_size
         self.device = device
         self.criterion = nn.CrossEntropyLoss(ignore_index = self.vocab['<PAD>'])
-        # model inputs
-        self.tgt_seq_len = train_ds[0]['decoder_input'][0].tensor.shape[-1]
-        self.tgt_mask = self.generate_square_subsequent_mask(self.tgt_seq_len, self.tgt_seq_len)
+
 
     def generate_square_subsequent_mask(self, tgt_seq_len, src_seq_len):
         mask = (torch.triu(torch.ones((tgt_seq_len, src_seq_len))) == 1).transpose(0, 1)
@@ -149,25 +152,26 @@ class ModelTransformer(nn.Module):
         return mask.to(self.device)
 
 
-    def train_batch(self, train_batch, optimizer, scheduler):
+    def train_batch(self, decoder_input, expected_output_flat, optimizer, scheduler):
         optimizer.zero_grad()
 
         total_loss = 0
 
-        for i in range(self.minibatch_size):
-            with train_batch['decoder_input'][i] as train_batch_decoder_input, train_batch['expected_output_flat'][i] as train_batch_expected_output_flat:
-                output = self(train_batch_decoder_input.tensor)
-                loss = self.criterion(output, train_batch_expected_output_flat.tensor) # CrossEntropy
+        for i in range(self.batch_size_train//self.minibatch_size):
+            with decoder_input[i] as decoder_input_mb, expected_output_flat[i] as expected_output_flat_mb:
+                output = self(decoder_input_mb.tensor)
+                loss = self.criterion(output, expected_output_flat_mb.tensor) # CrossEntropy
                 total_loss += loss.detach().item()
                 loss.backward()
                 output = output.detach()
                 loss = loss.detach()
         
         del loss
+        del output
         torch.cuda.empty_cache()
 
         optimizer.step()
-        return total_loss / self.minibatch_size, output
+        return total_loss / self.minibatch_size
         
 
 
@@ -175,23 +179,34 @@ class ModelTransformer(nn.Module):
         val_loss = []
         val_acc = []
 
-        for i in range(len(self.val_ds)):
+        for num_batch, (decoder_input, expected_output, expected_output_flat) in enumerate(self.val_dl):
             total_loss = 0
             total_acc = 0
                 
-            for j in range(self.minibatch_size):
-                with self.val_ds[i]['decoder_input'][j] as val_ds_decoder_input, self.val_ds[i]['expected_output_flat'][j] as val_ds_expected_output_flat:
-                    output = self(val_ds_decoder_input.tensor)
-                    loss = self.criterion(output, val_ds_expected_output_flat.tensor) # Crossentropy
+            for num_minibatch in range(self.batch_size_val//self.minibatch_size):
+                with decoder_input[num_minibatch] as decoder_input_mb,  expected_output_flat[num_minibatch] as expected_output_flat_mb:
+                    output = self(decoder_input_mb.tensor)
+                    loss = self.criterion(output, expected_output_flat_mb.tensor) # Crossentropy
                     total_loss += loss.item()
-                    total_acc += self.get_accuracy(output, val_ds_expected_output_flat.tensor)
-                    del output, loss
+                    total_acc += self.get_accuracy(output, expected_output_flat_mb.tensor)
+
+                    if num_batch == len(self.val_dl)-1 and num_minibatch == self.batch_size_val//self.minibatch_size-1:
+                        del loss
+                    else:
+                        del output, loss
+
                     torch.cuda.empty_cache()
 
             val_loss.append(total_loss / self.minibatch_size)
             val_acc.append(total_acc / self.minibatch_size)
 
-        return np.average(val_loss), np.average(val_acc)
+        self.log_val(
+            torch.argmax(output, 1)[decoder_input_mb.tensor.shape[1]:], 
+            expected_output[-1].tensor[-1],
+            np.average(val_loss), np.average(val_acc)
+        )
+
+        del output
 
 
     def get_accuracy(self, output, expected_output):
@@ -201,25 +216,32 @@ class ModelTransformer(nn.Module):
         acc = sum(no_pad_output == no_pad_expected_output).item() / len(no_pad_expected_output)
         return acc
 
+    def log_val(self, output, expected_output, val_loss, val_acc):
+        
+        key_list = list(self.vocab)
+        exp_output_char = [key_list[index] for index in expected_output if key_list[index] != '<PAD>']
+        output_char = [key_list[index] for index in output]
+
+        output_char = output_char[:len(exp_output_char)]
+
+        print('Expected Output: {}\n\nOutput: {}\n\n, val_loss: {}, accuracy: {}\n\n\n'
+            .format(exp_output_char, output_char, val_loss, val_acc))
+
 
     def start_training(self, num_epochs, optimizer, scheduler):
 
         for epoch in range(num_epochs):
-            for num_batch in range(len(self.train_ds)):
+
+            for num_batch, (decoder_input, _, expected_output_flat) in enumerate(self.train_dl):
                 self.train()
-                train_loss, output = self.train_batch(self.train_ds[num_batch], optimizer, scheduler)
+                train_loss = self.train_batch(decoder_input, expected_output_flat, optimizer, scheduler)
 
-                if num_batch == len(self.train_ds) - 1:
+                if num_batch == len(self.train_dl) - 1:
+                    print('Epoch:{}, Batch number: {}, train_loss: {}\n\n'
+                        .format(epoch, num_batch, train_loss))
                     self.eval()
-                    val_loss, val_acc = self.evaluate()
-                    exp_output_char = UtilityTextProcessing.decode_char(self.train_ds[num_batch]['expected_output'][-1].tensor, self.vocab)
-                    output_reshaped = UtilityTextProcessing.reshape_output(output, self.batch_size_train, self.minibatch_size, self.tgt_seq_len)
-                    output_char = UtilityTextProcessing.decode_char(output_reshaped, self.vocab)
+                    self.evaluate()
 
-                    print('Epoch:{}, Batch number: {}\n\nExpected Output: {}\n\nOutput: {}\n\ntrain_loss: {}, val_loss: {}, accuracy: {}\n\n\n'
-                        .format(epoch, num_batch, exp_output_char[0], output_char[0], train_loss, val_loss, val_acc))
-                
-                del output
                 torch.cuda.empty_cache()
                 gc.collect()
 
@@ -303,67 +325,11 @@ class UtilityTextProcessing():
 
 
     def assign_index(words, unique_words):
-        vocab = {'<SOS>': 0, '<EOS>': 1, '<PAD>': 2} #{'<PAD>': 0, '<UNK>': 1, '<SOS>': 2, '<EOS>': 3}
+        vocab = {'<PAD>': 0, '<SOS>': 1, '<EOS>': 2} #{'<PAD>': 0, '<UNK>': 1, '<SOS>': 2, '<EOS>': 3}
         for word in unique_words: vocab[word] = len(vocab)
         words_index = [[vocab[word] for word in sub_text] for sub_text in words]
         return words_index, vocab
 
-
-    def dataloader(words_index, percent_val, batch_size_train, batch_size_val, minibatch_size, device, vocab, shuffle=True):
-
-        # shuffle
-        if shuffle: random.shuffle(words_index)
-
-        # extract decoder input, expected output
-        decoder_input = copy.deepcopy(words_index)
-        expected_output = copy.deepcopy(words_index)
-
-        for i in range(len(words_index)): 
-            decoder_input[i].insert(0, vocab['<SOS>'])
-            expected_output[i].append(vocab['<EOS>'])
-
-         # find max len sentence and fill rest of the sentences with padding token
-        max_len = len(max(decoder_input, key=len))
-        
-        for i in range(len(words_index)):
-            num_pad = max_len - len(decoder_input[i])
-            decoder_input[i] = decoder_input[i]+([vocab['<PAD>']]*num_pad)
-            expected_output[i] = expected_output[i]+([vocab['<PAD>']]*num_pad)
-
-
-        decoder_input = torch.LongTensor(decoder_input).to(device)
-        expected_output = torch.LongTensor(expected_output).to(device)
-
-        # get index for splitting into train, val
-        idx_split_1 = math.ceil(math.ceil(len(words_index)*(1-percent_val))/batch_size_train)*batch_size_train
-        idx_split_2 = idx_split_1 + math.floor(len(words_index[idx_split_1:-1])/batch_size_val)*batch_size_val
-
-        # split into batches for training dataset
-        num_batches_train = idx_split_1 // batch_size_train
-        dec_in_train = decoder_input[:idx_split_1].reshape(num_batches_train, minibatch_size, batch_size_train//minibatch_size, -1)
-        exp_out_train = expected_output[:idx_split_1].reshape(num_batches_train, minibatch_size, batch_size_train//minibatch_size, -1)
-
-        # split into batches for validation dataset
-        num_batches_val = (idx_split_2 - idx_split_1) // batch_size_train
-        dec_in_val = decoder_input[idx_split_1:idx_split_2].reshape(num_batches_val, minibatch_size, batch_size_val//minibatch_size, -1)
-        exp_out_val = expected_output[idx_split_1:idx_split_2].reshape(num_batches_val, minibatch_size, batch_size_val//minibatch_size, -1)
-
-        # get train, val and test
-        train_ds = [{ 
-                'decoder_input': [ManagedTensor(dec_in_train[i][j], ManagedTensorMemoryStorageMode.CPU) for j in range(minibatch_size)], 
-                'expected_output': [ManagedTensor(exp_out_train[i][j], ManagedTensorMemoryStorageMode.CPU) for j in range(minibatch_size)], 
-                'expected_output_flat': [ManagedTensor(exp_out_train[i][j].reshape(-1), ManagedTensorMemoryStorageMode.CPU) for j in range(minibatch_size)], 
-            } for i in range(num_batches_train)
-        ]
-            
-        val_ds = [{ 
-                'decoder_input': [ManagedTensor(dec_in_val[i][j], ManagedTensorMemoryStorageMode.CPU) for j in range(minibatch_size)], 
-                'expected_output': [ManagedTensor(exp_out_val[i][j], ManagedTensorMemoryStorageMode.CPU) for j in range(minibatch_size)], 
-                'expected_output_flat': [ManagedTensor(exp_out_val[i][j].reshape(-1), ManagedTensorMemoryStorageMode.CPU) for j in range(minibatch_size)], 
-            } for i in range(num_batches_val)
-        ]
-
-        return train_ds, val_ds
 
 
     def process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device):
@@ -386,10 +352,20 @@ class UtilityTextProcessing():
                 pickle.dump(words_index, file_2)
 
 
-        train_ds, val_ds = UtilityTextProcessing.dataloader(words_index, percent_val, batch_size_train, batch_size_val, minibatch_size, device, vocab, shuffle=True)
-        #train_ds = None
-        #val_ds = None
-        return train_ds, val_ds, vocab
+        idx_split_1 = math.ceil(math.ceil(len(words_index)*(1-percent_val))/batch_size_train)*batch_size_train
+        idx_split_2 = idx_split_1 + math.floor(len(words_index[idx_split_1:-1])/batch_size_val)*batch_size_val
+
+        train_ds = words_index[:idx_split_1]
+        val_ds = words_index[idx_split_1:idx_split_2]
+
+
+        train_ds = CustomDataset(train_ds, vocab, minibatch_size)
+        val_ds = CustomDataset(val_ds, vocab, minibatch_size)
+
+        train_dl = DataLoader(dataset=train_ds, batch_size=batch_size_train, shuffle=True, collate_fn=collate_fn, pin_memory=True)
+        val_dl = DataLoader(dataset=val_ds, batch_size=batch_size_val, shuffle=True, collate_fn=collate_fn, pin_memory=True)
+
+        return train_dl, val_dl, vocab
 
 
     def reshape_output(output, batch_size, minibatch_size, tgt_seq_len):
@@ -448,6 +424,50 @@ class UtilityTextProcessing():
 
 
 
+class CustomDataset(Dataset):
+
+    def __init__(self, ds, vocab, minibatch_size):
+        self.dataset = ds
+        self.vocab = vocab
+        self.minibatch_size = minibatch_size
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, idx):
+        sample = self.dataset[idx]
+        vocab = self.vocab
+        minibatch_size = self.minibatch_size
+        return sample, vocab, minibatch_size
+
+
+def text_transform(sample, vocab):
+    decoder_input = torch.cat((torch.tensor([vocab['<SOS>']]), torch.tensor(sample)))
+    expected_output = torch.cat((torch.tensor(sample), torch.tensor([vocab['<EOS>']])))
+    return decoder_input, expected_output
+
+def collate_fn(batch):
+    decoder_input, expected_output = [], []
+
+    for sample, vocab, minibatch_size in batch:
+        temp_decoder_input, temp_expected_output = text_transform(sample, vocab)
+        decoder_input.append(temp_decoder_input)
+        expected_output.append(temp_expected_output)
+
+    decoder_input = pad_sequence(decoder_input, batch_first=True, padding_value = vocab['<PAD>'])
+    expected_output = pad_sequence(expected_output, batch_first=True, padding_value = vocab['<PAD>'])
+    expected_output_flat = expected_output.reshape(-1)
+    
+    batch_size = decoder_input.shape[0]
+    reshape_size = (batch_size//minibatch_size, minibatch_size, -1)
+    decoder_input = [ManagedTensor(decoder_input.reshape(reshape_size)[j], ManagedTensorMemoryStorageMode.CPU) for j in range(batch_size//minibatch_size)]
+    expected_output_flat = [ManagedTensor(expected_output.reshape(reshape_size)[j].reshape(-1), ManagedTensorMemoryStorageMode.CPU) for j in range(batch_size//minibatch_size)]
+    expected_output = [ManagedTensor(expected_output.reshape(reshape_size)[j], ManagedTensorMemoryStorageMode.CPU) for j in range(batch_size//minibatch_size)]
+
+    return  decoder_input, expected_output, expected_output_flat
+
+
+
 class ManagedTensorMemoryStorageMode(Enum):
     DEFAULT_DEVICE = 0
     CPU = 1
@@ -503,11 +523,11 @@ def main():
 
     # parameters dataloader
     #dec_in_seq_len = 25    # not needed since sequence length is now length of longest sentence
-    percent_val = 0.05
+    percent_val = 0.01 #0.05
     batch_size_train = 128
     batch_size_val = 128
     minibatch_size = 2
-    train_ds, val_ds, vocab = UtilityTextProcessing.process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device)
+    train_dl, val_dl, vocab = UtilityTextProcessing.process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device)
     
     #with open('train_ds_128_1.pkl', 'rb') as file_1:
     #    train_ds = pickle.load(file_1)
@@ -522,7 +542,7 @@ def main():
     num_decoder_layers = 12
     dropout = 0
     model = ModelTransformer(tgt_vocab_size, embedding_size, n_heads, num_decoder_layers, dropout, device).to(device)
-    model.init_data(train_ds, val_ds, vocab, batch_size_train, minibatch_size, device)
+    model.init_data(train_dl, val_dl, vocab, batch_size_train, batch_size_val, minibatch_size, device)
 
     # train the model
     num_epochs = 100
