@@ -105,9 +105,11 @@ class ModelTransformer(nn.Module):
         self.embedding = nn.Embedding(tgt_vocab_size, embedding_size)
         self.pos_encoder = PositionalEncoding(embedding_size, dropout)
         
-        self.transformer_decoder = [[] for i in range(self.num_decoder_layers)]
-        for i in range(self.num_decoder_layers):
-            self.transformer_decoder[i] = TransformerBlock(embedding_size, n_heads, dropout).to(device)
+        #self.transformer_decoder = [[] for i in range(self.num_decoder_layers)]
+        #for i in range(self.num_decoder_layers):
+        #    self.transformer_decoder[i] = TransformerBlock(embedding_size, n_heads, dropout).to(device)
+        decoder_layer = nn.TransformerEncoderLayer(embedding_size, n_heads, dim_feedforward=2048, dropout=dropout, batch_first=True, device=device)
+        self.transformer_decoder = nn.TransformerEncoder(decoder_layer, num_decoder_layers)
 
         self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
         self.softmax = nn.Softmax(dim=2)
@@ -122,11 +124,13 @@ class ModelTransformer(nn.Module):
         tgt_attn_mask = self.generate_square_subsequent_mask(tgt_seq_len, tgt_seq_len)
         tgt_padding_mask = (tgt == self.vocab['<PAD>'])
 
-        attn_head_weights_all = {}
-        for i in range(self.num_decoder_layers):
-            out, attn_head_weights = self.transformer_decoder[i](out, out, out, tgt_padding_mask, tgt_attn_mask)
-            attn_head_weights_all['decoder_layer_'+str(i+1)] = attn_head_weights
-            #UtilityTextProcessing.plot_attention_head(tgt, attn_head_weights_all['decoder_layer_1'][1].detach(), vocab=self.vocab)
+        out = self.transformer_decoder(out, tgt_attn_mask, tgt_padding_mask)
+
+        #attn_head_weights_all = {}
+        #for i in range(self.num_decoder_layers):
+        #    out, attn_head_weights = self.transformer_decoder[i](out, out, out, tgt_padding_mask, tgt_attn_mask)
+        #    attn_head_weights_all['decoder_layer_'+str(i+1)] = attn_head_weights
+        #    #UtilityTextProcessing.plot_attention_head(tgt, attn_head_weights_all['decoder_layer_1'][1].detach(), vocab=self.vocab)
        
         out = self.fc_out(out)
 
@@ -163,6 +167,8 @@ class ModelTransformer(nn.Module):
                 loss = self.criterion(output, expected_output_flat_mb.tensor) # CrossEntropy
                 total_loss += loss.detach().item()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.parameters(), 0.5)
+
                 output = output.detach()
                 loss = loss.detach()
         
@@ -171,7 +177,8 @@ class ModelTransformer(nn.Module):
         torch.cuda.empty_cache()
 
         optimizer.step()
-        return total_loss / self.minibatch_size
+
+        return total_loss / (self.batch_size_train/self.minibatch_size)
         
 
 
@@ -179,7 +186,7 @@ class ModelTransformer(nn.Module):
         val_loss = []
         val_acc = []
         num_minibatches = self.batch_size_val//self.minibatch_size
-        
+
         for num_batch, (decoder_input, expected_output, expected_output_flat) in enumerate(self.val_dl):
             total_loss = 0
             total_acc = 0
@@ -232,7 +239,6 @@ class ModelTransformer(nn.Module):
     def start_training(self, num_epochs, optimizer, scheduler):
 
         for epoch in range(num_epochs):
-
             for num_batch, (decoder_input, _, expected_output_flat) in enumerate(self.train_dl):
                 self.train()
                 train_loss = self.train_batch(decoder_input, expected_output_flat, optimizer, scheduler)
@@ -524,10 +530,10 @@ def main():
 
     # parameters dataloader
     #dec_in_seq_len = 25    # not needed since sequence length is now length of longest sentence
-    percent_val = 0.01 #0.05
+    percent_val = 0.1 #0.05
     batch_size_train = 128
     batch_size_val = 128
-    minibatch_size = 2
+    minibatch_size = 8
     train_dl, val_dl, vocab = UtilityTextProcessing.process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device)
     
     #with open('train_ds_128_1.pkl', 'rb') as file_1:
