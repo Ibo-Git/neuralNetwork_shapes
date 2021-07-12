@@ -6,5 +6,7 @@ textfiles/
 trump/
 *.pth
 opin_dataset/
-processed_text.pkl
-vocab.pkl
+review_text.pkl
+vocab_review.pkl
+trump_text.pkl
+vocab_trump.pkl
