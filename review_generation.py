@@ -256,7 +256,7 @@ class ModelTransformer(nn.Module):
 
 class UtilityTextProcessing():
 
-    def read_dataset():
+    def read_review():
         data_type = 'hotel_data'
         current_path = pathlib.Path().absolute()
         files_names = os.listdir(os.path.join(current_path, 'opin_dataset\\', data_type))
@@ -295,6 +295,25 @@ class UtilityTextProcessing():
             file_all = file_all + textfile
         return file_all
 
+    def read_trump():
+        current_path = pathlib.Path().absolute()
+        files_names = os.listdir(os.path.join(current_path, 'trump\\originals'))
+        file_all = []
+        sent_detector = nltk.data.load('tokenizers/punkt/english.pickle')
+
+        for file_name in files_names:
+            with open(os.path.join(current_path, 'trump\\originals', file_name), 'r', encoding="UTF-8") as file:
+                file = file.read().replace('\n', '')
+                file = file.lower()
+                file = re.sub('…', '.', file)
+                file = file.lower()
+                sentences = sent_detector.tokenize(file.strip())
+
+            file_all = file_all + sentences
+        
+        return file_all
+
+
 
     def get_unique_words(text):
         unique_words = set()
@@ -314,7 +333,7 @@ class UtilityTextProcessing():
         misspelled = spell.unknown(unique_words)
 
         for word in misspelled:
-            correctedWord = spell.correction(word)
+            correctedWord = word #spell.correction(word)
 
             if correctedWord == word: 
                 correctedWord = '<UNK>'
@@ -339,25 +358,33 @@ class UtilityTextProcessing():
 
 
 
-    def process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device):
-        if os.path.isfile('processed_text.pkl') and os.path.isfile('vocab.pkl'):
-            file_1 = open('vocab.pkl', 'rb')
-            vocab = pickle.load(file_1)
+    def process_text(data_type, percent_val, batch_size_train, batch_size_val, minibatch_size):
+        if data_type == 'trump':
+            textfile_name = 'trump_text'
+            vocabfile_name = 'vocab_trump'
+        elif data_type == 'review':
+            textfile_name = 'review_text'
+            vocabfile_name = 'vocab_review'
 
-            file_2 = open('processed_text.pkl', 'rb')
-            words_index = pickle.load(file_2)
+        if os.path.isfile((textfile_name + '.pkl')) and os.path.isfile((vocabfile_name + '.pkl')):
+                file_1 = open((vocabfile_name + '.pkl'), 'rb')
+                vocab = pickle.load(file_1)
 
+                file_2 = open((textfile_name + '.pkl'), 'rb')
+                words_index = pickle.load(file_2)
         else:
-            text = UtilityTextProcessing.read_dataset()
+            if data_type == 'trump':
+                text = UtilityTextProcessing.read_trump()
+            elif data_type == 'review':
+                text = UtilityTextProcessing.read_review()
+
             words, unique_words = UtilityTextProcessing.get_unique_words(text)
             words_index, vocab = UtilityTextProcessing.assign_index(words, unique_words)
-
-            with open("vocab.pkl", "wb") as file_1:
+            with open((vocabfile_name + '.pkl'), "wb") as file_1:
                 pickle.dump(vocab, file_1)
 
-            with open("processed_text.pkl", "wb") as file_2:
+            with open((textfile_name + '.pkl'), "wb") as file_2:
                 pickle.dump(words_index, file_2)
-
 
         idx_split_1 = math.floor(math.floor(len(words_index)*(1-percent_val))/batch_size_train)*batch_size_train
         idx_split_2 = idx_split_1 + math.floor(len(words_index[idx_split_1:-1])/batch_size_val)*batch_size_val
@@ -534,7 +561,8 @@ def main():
     batch_size_train = 128
     batch_size_val = 128
     minibatch_size = 8
-    train_dl, val_dl, vocab = UtilityTextProcessing.process_text(percent_val, batch_size_train, batch_size_val, minibatch_size, device)
+    data_type = 'trump' # 'trump' / 'review'
+    train_dl, val_dl, vocab = UtilityTextProcessing.process_text(data_type, percent_val, batch_size_train, batch_size_val, minibatch_size)
     
     #with open('train_ds_128_1.pkl', 'rb') as file_1:
     #    train_ds = pickle.load(file_1)
