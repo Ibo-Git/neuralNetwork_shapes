@@ -58,21 +58,24 @@ class TransformerBlock(nn.Module):
     def __init__(self, embedding_size, n_heads, dropout):
         super(TransformerBlock, self).__init__()
         self.masked_attention = nn.MultiheadAttention(embed_dim=embedding_size, num_heads=n_heads, dropout=dropout, batch_first=True)
-        self.norm = nn.LayerNorm(embedding_size)
+        self.norm_1 = nn.LayerNorm(embedding_size)
+        self.norm_2 = nn.LayerNorm(embedding_size)
         self.feed_forward = nn.Sequential(
             nn.Linear(embedding_size, 2048),
             nn.ReLU(),
             nn.Linear(2048, embedding_size),
         )
-        self.dropout = nn.Dropout(dropout)
+        self.dropout_1 = nn.Dropout(dropout)
+        self.dropout_2 = nn.Dropout(dropout)
+
     
     def forward(self, query, key, value, tgt_padding_mask, tgt_attention_mask):
         out_attn, attn_head_weights = self.masked_attention(query, key, value, key_padding_mask=tgt_padding_mask, attn_mask=tgt_attention_mask)
-        out_norm_1 = self.norm(out_attn + query)
-        out_dp_1 =  self.dropout(out_norm_1)
+        out_norm_1 = self.norm_1(out_attn + query)
+        out_dp_1 =  self.dropout_1(out_norm_1)
         out_ff = self.feed_forward(out_dp_1)
-        out_norm_2 = self.norm(out_dp_1 + out_ff)
-        out = self.dropout(out_norm_2)
+        out_norm_2 = self.norm_2(out_dp_1 + out_ff)
+        out = self.dropout_2(out_norm_2)
         return out, attn_head_weights
 
 
@@ -396,8 +399,8 @@ class UtilityTextProcessing():
         train_ds = CustomDataset(train_ds, vocab, minibatch_size)
         val_ds = CustomDataset(val_ds, vocab, minibatch_size)
 
-        train_dl = DataLoader(dataset=train_ds, batch_size=batch_size_train, shuffle=True, collate_fn=collate_fn, pin_memory=True)
-        val_dl = DataLoader(dataset=val_ds, batch_size=batch_size_val, shuffle=True, collate_fn=collate_fn, pin_memory=True)
+        train_dl = DataLoader(dataset=train_ds, batch_size=batch_size_train, shuffle=True, collate_fn=collate_fn, pin_memory=True, num_workers=4)
+        val_dl = DataLoader(dataset=val_ds, batch_size=batch_size_val, shuffle=True, collate_fn=collate_fn, pin_memory=True, num_workers=4)
 
         return train_dl, val_dl, vocab
 
@@ -460,8 +463,10 @@ class UtilityTextProcessing():
 
 class CustomDataset(Dataset):
 
-    def __init__(self, ds, vocab, minibatch_size):
-        self.dataset = ds
+    def __init__(self, dataset, vocab, minibatch_size):
+        self.dataset = dataset
+        self.decoder_input = [(torch.cat((torch.tensor([vocab['<SOS>']]), torch.tensor(dataset[i])))) for i in range(len(dataset))]
+        self.expected_output = [torch.cat((torch.tensor(dataset[i]), torch.tensor([vocab['<EOS>']]))) for i in range(len(dataset))]
         self.vocab = vocab
         self.minibatch_size = minibatch_size
 
@@ -469,22 +474,19 @@ class CustomDataset(Dataset):
         return len(self.dataset)
 
     def __getitem__(self, idx):
-        sample = self.dataset[idx]
+        decoder_input = self.decoder_input[idx]
+        expected_output = self.expected_output[idx]
         vocab = self.vocab
         minibatch_size = self.minibatch_size
-        return sample, vocab, minibatch_size
 
+        return decoder_input, expected_output, vocab, minibatch_size
 
-def text_transform(sample, vocab):
-    decoder_input = torch.cat((torch.tensor([vocab['<SOS>']]), torch.tensor(sample)))
-    expected_output = torch.cat((torch.tensor(sample), torch.tensor([vocab['<EOS>']])))
-    return decoder_input, expected_output
 
 def collate_fn(batch):
+    ManagedTensor.init(device)  
     decoder_input, expected_output = [], []
 
-    for sample, vocab, minibatch_size in batch:
-        temp_decoder_input, temp_expected_output = text_transform(sample, vocab)
+    for temp_decoder_input, temp_expected_output, vocab, minibatch_size in batch:
         decoder_input.append(temp_decoder_input)
         expected_output.append(temp_expected_output)
 
@@ -535,6 +537,7 @@ class ManagedTensor:
     @tensor.setter
     def tensor(self, value):
         self._tensor = value
+        self._tensor.pin_memory()
         self.__move_to_storage() # Auto-convert tensor to device
 
     def __move_to_storage(self):
