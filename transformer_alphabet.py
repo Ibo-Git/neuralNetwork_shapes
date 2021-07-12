@@ -82,6 +82,30 @@ class PositionalEncoding(nn.Module):
         x = x + self.pe[:x.size(0), :]
         return self.dropout(x)
 
+class TransformerBlock(nn.Module):
+
+    def __init__(self, embedding_size, n_heads, dropout):
+        super(TransformerBlock, self).__init__()
+        self.masked_attention = nn.MultiheadAttention(embed_dim=embedding_size, num_heads=n_heads, dropout=dropout, batch_first=True)
+        self.norm_1 = nn.LayerNorm(embedding_size)
+        self.norm_2 = nn.LayerNorm(embedding_size)
+        self.feed_forward = nn.Sequential(
+            nn.Linear(embedding_size, 2048),
+            nn.ReLU(),
+            nn.Linear(2048, embedding_size),
+        )
+        self.dropout_1 = nn.Dropout(dropout)
+        self.dropout_2 = nn.Dropout(dropout)
+
+    
+    def forward(self, query, key, value, tgt_padding_mask, tgt_attention_mask):
+        out_attn, attn_head_weights = self.masked_attention(query, key, value, key_padding_mask=tgt_padding_mask, attn_mask=tgt_attention_mask)
+        out_norm_1 = self.norm_1(out_attn + query)
+        out_dp_1 =  self.dropout_1(out_norm_1)
+        out_ff = self.feed_forward(out_dp_1)
+        out_norm_2 = self.norm_2(out_dp_1 + out_ff)
+        out = self.dropout_2(out_norm_2)
+        return out, attn_head_weights
 
 class ModelTransformer(nn.Module):
 
@@ -93,11 +117,13 @@ class ModelTransformer(nn.Module):
         self.embedding = nn.Embedding(src_vocab_size, embedding_size)
         self.pos_encoder = PositionalEncoding(embedding_size, dropout)
         
+        self.transformer_decoder = [[] for i in range(self.num_encoder_layers)]
+        for i in range(self.num_encoder_layers):
+            self.transformer_decoder[i] = TransformerBlock(embedding_size, n_heads, dropout).to(device)
         encoder_layer = nn.TransformerEncoderLayer(embedding_size, n_heads, dim_feedforward=2048, dropout=dropout, batch_first=True, device=device)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_encoder_layers)
 
         self.fc_out = nn.Linear(embedding_size, src_vocab_size)
-        self.softmax = nn.Softmax(dim=2)
         self.flatten = nn.Flatten(start_dim=0, end_dim=1) 
 
 
@@ -108,7 +134,11 @@ class ModelTransformer(nn.Module):
         # model inputs
         src_seq_len = src.shape[1]
         src_attn_mask = self.generate_square_subsequent_mask(src_seq_len, src_seq_len)
+        src_padding_mask = None
         out = self.transformer_encoder(out, src_attn_mask)
+        #for i in range(self.num_encoder_layers):
+        #    out, _ = self.transformer_decoder[i](out, out, out, src_padding_mask, src_attn_mask)
+
         out = self.fc_out(out)
         out = self.flatten(out)
 
@@ -380,7 +410,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     ManagedTensor.init(device)
 
-    text = [random. choice(string.ascii_letters) for i in range(3200)]
+    text = [random. choice(string.ascii_letters) for i in range(3200*10)]
     text = ' '.join(text).lower()
 
     # parameters dataloader
@@ -402,7 +432,7 @@ def main():
     model.init_data(train_dl, val_dl, vocab, batch_size_train, batch_size_val, sequence_length, device)
 
     # train the model
-    num_epochs = 2
+    num_epochs = 10
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
     model.start_training(num_epochs, optimizer, scheduler)
