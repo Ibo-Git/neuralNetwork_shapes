@@ -7,7 +7,6 @@ import pygame
 # from snake_model import Linear_QNet, Training
 
 
-
 pygame.init()
 font = pygame.font.SysFont('arial', 25)
 Point = namedtuple('Point', 'x, y')
@@ -25,7 +24,7 @@ BLUE2 = (0, 100, 255)
 BLACK = (0, 0, 0)
 
 class SnakeGame():
-    def __init__(self, width=640, height=480, blocksize=20, init_snake_length=3, gamespeed=10, food_gain=10):
+    def __init__(self, width=640, height=480, blocksize=20, init_snake_length=3, gamespeed=10, food_gain=1):
         # init user set parameters
         self.width = width
         self.height = height
@@ -45,7 +44,6 @@ class SnakeGame():
         self.restart()
 
 
-
     def restart(self):
         # init 
         self.score = 0
@@ -53,15 +51,20 @@ class SnakeGame():
         self.direction = Direction.RIGHT
         self.food = None
 
-        self.place_food()
         self.head = self.init_head()
         self.snake = self.init_snake()
-        
+        self.place_food()
+
 
     def place_food(self):
         x = random.randrange(0, ((self.width - self.blocksize) // self.blocksize) * self.blocksize, self.blocksize)
         y = random.randrange(0, ((self.height - self.blocksize) // self.blocksize) * self.blocksize, self.blocksize)
         self.food = Point(x, y)
+
+        while self.food in self.snake:
+            x = random.randrange(0, ((self.width - self.blocksize) // self.blocksize) * self.blocksize, self.blocksize)
+            y = random.randrange(0, ((self.height - self.blocksize) // self.blocksize) * self.blocksize, self.blocksize)
+            self.food = Point(x, y)
 
         return self.food
     
@@ -148,10 +151,13 @@ class SnakeGame():
     def is_collision(self):
         if self.head.x > self.width - self.blocksize or self.head.x < 0 or self.head.y > self.height - self.blocksize or self.head.y < 0:
             return True
-        elif self.head in [self.snake[i] for i in range(1, len(self.snake) - 1)]:
-            return True
-        else:
-            return False
+        
+        for i in range(1, len(self.snake)):
+            if self.head == self.snake[i]: 
+                return True
+            
+            elif i == len(self.snake):
+                return False
 
 
     def update_UI(self):
