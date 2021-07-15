@@ -24,15 +24,14 @@ BLUE2 = (0, 100, 255)
 BLACK = (0, 0, 0)
 
 class SnakeGame():
-    def __init__(self, width=640, height=480, blocksize=20, init_snake_length=3, gamespeed=10, food_gain=1):
+    def __init__(self, width=640, height=480, blocksize=20, init_snake_length=20, gamespeed=10, food_gain=1):
         # init user set parameters
         self.width = width
         self.height = height
         self.blocksize = blocksize
-        self.init_snake_length = init_snake_length
         self.gamespeed = gamespeed
         self.food_gain = food_gain
-        self.block_buffer = 0
+        self.block_buffer = init_snake_length
 
         # init display
         self.show_UI = 1
@@ -79,9 +78,7 @@ class SnakeGame():
 
     def init_snake(self):
         snake = deque()
-
-        for i in range(self.init_snake_length):
-            snake.appendleft(Point(self.head.x - (i - self.blocksize), self.head.y))
+        snake.appendleft(Point(self.head.x, self.head.y))
 
         return snake
 
