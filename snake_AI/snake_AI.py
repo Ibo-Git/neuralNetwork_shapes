@@ -25,7 +25,7 @@ BLUE2 = (0, 100, 255)
 BLACK = (0, 0, 0)
 
 class SnakeGame():
-    def __init__(self, width=640, height=480, blocksize=20, init_snake_length=3, gamespeed=5, food_gain=3):
+    def __init__(self, width=640, height=480, blocksize=20, init_snake_length=3, gamespeed=10, food_gain=10):
         # init user set parameters
         self.width = width
         self.height = height
@@ -105,8 +105,6 @@ class SnakeGame():
             self.place_food()
             self.block_buffer -= 1
         elif self.block_buffer != 0:
-            self.score += 1
-            self.place_food()
             self.block_buffer -= 1
         else:
             self.snake.pop()
