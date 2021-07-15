@@ -31,7 +31,7 @@ class SnakeGame():
         self.blocksize = blocksize
         self.gamespeed = gamespeed
         self.food_gain = food_gain
-        self.block_buffer = init_snake_length
+        self.init_snake_length = init_snake_length
 
         # init display
         self.show_UI = 1
@@ -49,6 +49,7 @@ class SnakeGame():
         self.game_over = 0
         self.direction = Direction.RIGHT
         self.food = None
+        self.block_buffer = self.init_snake_length
 
         self.head = self.init_head()
         self.snake = self.init_snake()
