@@ -1,13 +1,4 @@
-data_shape/
-data/
 __pycache__/
-textfiles/
 .vscode/
-trump/
-*.pth
-opin_dataset/
-review_text.pkl
-vocab_review.pkl
-trump_text.pkl
-vocab_trump.pkl
 datasets/
+saved_files/
