@@ -1,11 +1,12 @@
-import pygame
-import torch
 import random
-from collections import namedtuple, deque
+from collections import deque, namedtuple
 from enum import Enum
-import torch
-import torch.nn as nn
-import os
+
+import pygame
+
+from snake_model import Linear_QNet, Training
+
+
 
 pygame.init()
 font = pygame.font.SysFont('arial', 25)
@@ -18,19 +19,21 @@ class Direction(Enum):
     DOWN = 4
 
 WHITE = (255, 255, 255)
-RED = (200,0,0)
+RED = (200, 0, 0)
 BLUE1 = (0, 0, 255)
 BLUE2 = (0, 100, 255)
-BLACK = (0,0,0)
+BLACK = (0, 0, 0)
 
 class SnakeGame():
-    def __init__(self, width=640, height=480, blocksize=20, init_snake_length=3, gamespeed=5):
+    def __init__(self, width=640, height=480, blocksize=20, init_snake_length=3, gamespeed=5, food_gain=3):
         # init user set parameters
         self.width = width
         self.height = height
         self.blocksize = blocksize
         self.init_snake_length = init_snake_length
         self.gamespeed = gamespeed
+        self.food_gain = food_gain
+        self.block_buffer = 0
 
         # init display
         self.show_UI = 1
@@ -64,8 +67,8 @@ class SnakeGame():
     
 
     def init_head(self):
-        x = random.randrange(self.width//4, self.width//4*3, self.blocksize)
-        y = random.randrange(self.height//4, self.height//4*3, self.blocksize)
+        x = random.randrange(self.width // 4, self.width // 4 * 3, self.blocksize)
+        y = random.randrange(self.height // 4, self.height // 4 * 3, self.blocksize)
         init_point = Point(x, y)
 
         return init_point
@@ -75,7 +78,7 @@ class SnakeGame():
         snake = deque()
 
         for i in range(self.init_snake_length):
-            snake.appendleft(Point(self.head.x - (i-self.blocksize), self.head.y))
+            snake.appendleft(Point(self.head.x - (i - self.blocksize), self.head.y))
 
         return snake
 
@@ -97,8 +100,14 @@ class SnakeGame():
         self.snake.appendleft(self.head)
 
         if self.head == self.food:
+            self.block_buffer = self.block_buffer + self.food_gain
             self.score += 1
             self.place_food()
+            self.block_buffer -= 1
+        elif self.block_buffer != 0:
+            self.score += 1
+            self.place_food()
+            self.block_buffer -= 1
         else:
             self.snake.pop()
             
@@ -141,7 +150,7 @@ class SnakeGame():
     def is_collision(self):
         if self.head.x > self.width - self.blocksize or self.head.x < 0 or self.head.y > self.height - self.blocksize or self.head.y < 0:
             return True
-        elif self.head in [self.snake[i] for i in range(1, len(self.snake)-1)]:
+        elif self.head in [self.snake[i] for i in range(1, len(self.snake) - 1)]:
             return True
         else:
             return False
@@ -161,27 +170,6 @@ class SnakeGame():
         pygame.display.flip()
         return
 
-
-class Linear_QNet(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size):
-        super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(input_size, hidden_size),
-            nn.ReLU(),
-            nn.Linear(hidden_size, output_size),
-            nn.Sigmoid()
-        )
-    
-    def forward(self, x):
-        return self.net(x)
-
-    def save(self, file_name='snake_model.pth'):
-        model_folder_path = '.\model'
-        if not os.path.exists(model_folder_path):
-            os.makedirs(model_folder_path)
-
-        file_name = os.path.join(model_folder_path, file_name)
-        torch.save(self.state_dict(), file_name)
 
 
 def main():
