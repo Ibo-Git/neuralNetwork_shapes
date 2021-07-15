@@ -4,7 +4,7 @@ from enum import Enum
 
 import pygame
 
-from snake_model import Linear_QNet, Training
+# from snake_model import Linear_QNet, Training
 
 
 
@@ -121,16 +121,16 @@ class SnakeGame():
                     quit()
                     
             if event.type == pygame.KEYUP:
-                if event.key == pygame.K_UP:
+                if event.key == pygame.K_UP or event.key == pygame.K_w:
                     self.direction = Direction.UP
 
-                if event.key == pygame.K_DOWN:
+                if event.key == pygame.K_DOWN or event.key == pygame.K_s:
                     self.direction = Direction.DOWN
 
-                if event.key == pygame.K_LEFT:
+                if event.key == pygame.K_LEFT or event.key == pygame.K_a:
                     self.direction = Direction.LEFT
 
-                if event.key == pygame.K_RIGHT:
+                if event.key == pygame.K_RIGHT or event.key == pygame.K_d:
                     self.direction = Direction.RIGHT
         
         self.update_snake_and_food()
