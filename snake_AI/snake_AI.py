@@ -24,7 +24,7 @@ BLUE2 = (0, 100, 255)
 BLACK = (0, 0, 0)
 
 class SnakeGame():
-    def __init__(self, width = 32, height = 18, blocksize = 60, init_snake_length = 3, gamespeed = 10, food_gain = 1):
+    def __init__(self, width = 32, height = 18, blocksize = 30, init_snake_length = 3, gamespeed = 10, food_gain = 1):
         # init user set parameters
         self.blocksize = blocksize
         self.width = width
