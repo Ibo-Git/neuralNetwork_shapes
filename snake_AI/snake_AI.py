@@ -24,11 +24,12 @@ BLUE2 = (0, 100, 255)
 BLACK = (0, 0, 0)
 
 class SnakeGame():
-    def __init__(self, width=640, height=480, blocksize=20, init_snake_length=20, gamespeed=10, food_gain=1):
+    def __init__(self, width = 32, height = 18, blocksize = 60, init_snake_length = 3, gamespeed = 10, food_gain = 1):
         # init user set parameters
+        self.blocksize = blocksize
         self.width = width
         self.height = height
-        self.blocksize = blocksize
+
         self.gamespeed = gamespeed
         self.food_gain = food_gain
         self.init_snake_length = init_snake_length
@@ -36,7 +37,7 @@ class SnakeGame():
         # init display
         self.show_UI = 1
         if self.show_UI:
-            self.display = pygame.display.set_mode((width, height))
+            self.display = pygame.display.set_mode((self.width * self.blocksize, self.height * self.blocksize))
             pygame.display.set_caption('High IQ Snake!!!')
             self.clock = pygame.time.Clock()
         
@@ -49,7 +50,7 @@ class SnakeGame():
         self.game_over = 0
         self.direction = Direction.RIGHT
         self.food = None
-        self.block_buffer = self.init_snake_length
+        self.snake_buffer = self.init_snake_length
 
         self.head = self.init_head()
         self.snake = self.init_snake()
@@ -57,21 +58,21 @@ class SnakeGame():
 
 
     def place_food(self):
-        x = random.randrange(0, ((self.width - self.blocksize) // self.blocksize) * self.blocksize, self.blocksize)
-        y = random.randrange(0, ((self.height - self.blocksize) // self.blocksize) * self.blocksize, self.blocksize)
+        x = random.randint(0, self.width - 1)
+        y = random.randint(0, self.height - 1)
         self.food = Point(x, y)
 
         while self.food in self.snake:
-            x = random.randrange(0, ((self.width - self.blocksize) // self.blocksize) * self.blocksize, self.blocksize)
-            y = random.randrange(0, ((self.height - self.blocksize) // self.blocksize) * self.blocksize, self.blocksize)
+            x = random.randint(0, self.width - 1)
+            y = random.randint(0, self.height - 1)
             self.food = Point(x, y)
 
         return self.food
     
 
     def init_head(self):
-        x = random.randrange(self.width // 4, self.width // 4 * 3, self.blocksize)
-        y = random.randrange(self.height // 4, self.height // 4 * 3, self.blocksize)
+        x = random.randint(self.width // 4, self.width // 4 * 3)
+        y = random.randint(self.height // 4, self.height // 4 * 3)
         init_point = Point(x, y)
 
         return init_point
@@ -86,27 +87,27 @@ class SnakeGame():
 
     def update_snake_and_food(self):
         if self.direction == Direction.UP:
-            self.head = Point(self.head.x, self.head.y - self.blocksize)
+            self.head = Point(self.head.x, self.head.y - 1)
             
         if self.direction == Direction.DOWN:
-            self.head = Point(self.head.x, self.head.y + self.blocksize)
+            self.head = Point(self.head.x, self.head.y + 1)
 
         if self.direction == Direction.LEFT:
-            self.head = Point(self.head.x - self.blocksize, self.head.y)
+            self.head = Point(self.head.x - 1, self.head.y)
 
         if self.direction == Direction.RIGHT:
-            self.head = Point(self.head.x + self.blocksize, self.head.y)
+            self.head = Point(self.head.x + 1, self.head.y)
 
 
         self.snake.appendleft(self.head)
 
         if self.head == self.food:
-            self.block_buffer = self.block_buffer + self.food_gain
+            self.snake_buffer = self.snake_buffer + self.food_gain
             self.score += 1
             self.place_food()
-            self.block_buffer -= 1
-        elif self.block_buffer != 0:
-            self.block_buffer -= 1
+            self.snake_buffer -= 1
+        elif self.snake_buffer != 0:
+            self.snake_buffer -= 1
         else:
             self.snake.pop()
             
@@ -147,7 +148,7 @@ class SnakeGame():
     
 
     def is_collision(self):
-        if self.head.x > self.width - self.blocksize or self.head.x < 0 or self.head.y > self.height - self.blocksize or self.head.y < 0:
+        if self.head.x > self.width - 1 or self.head.x < 0 or self.head.y > self.height - 1 or self.head.y < 0:
             return True
         
         for i in range(1, len(self.snake)):
@@ -162,10 +163,10 @@ class SnakeGame():
         self.display.fill(BLACK)
 
         for i, pt in enumerate(self.snake):
-            if i == 0: pygame.draw.rect(self.display, BLUE2, pygame.Rect(pt.x, pt.y, self.blocksize, self.blocksize))
-            else: pygame.draw.rect(self.display, BLUE1, pygame.Rect(pt.x, pt.y, self.blocksize, self.blocksize))
+            if i == 0: pygame.draw.rect(self.display, BLUE2, pygame.Rect(pt.x * self.blocksize, pt.y * self.blocksize, self.blocksize, self.blocksize))
+            else: pygame.draw.rect(self.display, BLUE1, pygame.Rect(pt.x * self.blocksize, pt.y * self.blocksize, self.blocksize, self.blocksize))
             
-        pygame.draw.rect(self.display, RED, pygame.Rect(self.food.x, self.food.y, self.blocksize, self.blocksize))
+        pygame.draw.rect(self.display, RED, pygame.Rect(self.food.x * self.blocksize, self.food.y * self.blocksize, self.blocksize, self.blocksize))
 
         text = font.render("Score: " + str(self.score), True, WHITE)
         self.display.blit(text, [0, 0])
