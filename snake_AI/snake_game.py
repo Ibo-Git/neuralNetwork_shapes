@@ -141,16 +141,16 @@ class SnakeGame():
                         self.direction = Direction.RIGHT
         
         if self.player == 'AI':
-            if action.index(max(action)) == 0:
+            if action.index(max(action)) == 0 and self.direction != Direction.DOWN:
                 self.direction = Direction.UP
 
-            if action.index(max(action)) == 1:
+            if action.index(max(action)) == 1 and self.direction != Direction.UP:
                 self.direction = Direction.DOWN
 
-            if action.index(max(action)) == 2:
+            if action.index(max(action)) == 2 and self.direction != Direction.RIGHT:
                 self.direction = Direction.LEFT
 
-            if action.index(max(action)) == 3:
+            if action.index(max(action)) == 3 and self.direction != Direction.LEFT:
                 self.direction = Direction.RIGHT
 
         self.update_snake_and_food()
