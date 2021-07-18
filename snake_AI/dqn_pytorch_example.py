@@ -55,16 +55,16 @@ class DQN(nn.Module):
 
     def __init__(self, h, w, outputs):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=2)
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=1, padding=0)
         self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=2)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=0)
         self.bn2 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=2)
+        self.conv3 = nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=0)
         self.bn3 = nn.BatchNorm2d(32)
 
         # Number of Linear input connections depends on output of conv2d layers
         # and therefore the input image size, so compute it.
-        def conv2d_size_out(size, kernel_size = 3, stride = 2, padding = 2):
+        def conv2d_size_out(size, kernel_size = 3, stride = 1, padding = 0):
             return ((size - kernel_size + 2*padding) // stride ) + 1
         convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(w)))
         convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(h)))
@@ -259,15 +259,17 @@ for i_episode in range(num_episodes):
         # Move to the next state
         state = next_state
 
-        plot_scores.append(score)
-        total_score += score
-        mean_score = total_score / num_games
-        plot_mean_scores.append(mean_score)
-        #plot(plot_scores, plot_mean_scores)
+
   
         # Perform one step of the optimization (on the policy network)
         optimize_model()
         if done:
+            print('Game: ', num_games, 'Score:', score)
+            plot_scores.append(score)
+            total_score += score
+            mean_score = total_score / num_games
+            plot_mean_scores.append(mean_score)
+            plot(plot_scores, plot_mean_scores)
             episode_durations.append(t + 1)
             break
 
