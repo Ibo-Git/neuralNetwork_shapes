@@ -15,7 +15,7 @@ from PIL import Image
 
 from snake_game import SnakeGame
 
-game = SnakeGame()
+game = SnakeGame(width=10, height=10)
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
@@ -55,17 +55,17 @@ class DQN(nn.Module):
 
     def __init__(self, h, w, outputs):
         super(DQN, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2)
+        self.conv1 = nn.Conv2d(1, 16, kernel_size=3, stride=2, padding=2)
         self.bn1 = nn.BatchNorm2d(16)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=3, stride=2, padding=2)
         self.bn2 = nn.BatchNorm2d(32)
-        self.conv3 = nn.Conv2d(32, 32, kernel_size=3, stride=2)
+        self.conv3 = nn.Conv2d(32, 32, kernel_size=3, stride=2, padding=2)
         self.bn3 = nn.BatchNorm2d(32)
 
         # Number of Linear input connections depends on output of conv2d layers
         # and therefore the input image size, so compute it.
-        def conv2d_size_out(size, kernel_size = 3, stride = 2):
-            return (size - (kernel_size - 1) - 1) // stride  + 1
+        def conv2d_size_out(size, kernel_size = 3, stride = 2, padding = 2):
+            return ((size - kernel_size + 2*padding) // stride ) + 1
         convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(w)))
         convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(h)))
         linear_input_size = convw * convh * 32
@@ -205,11 +205,37 @@ def optimize_model():
     optimizer.step()
 
 
+import matplotlib.pyplot as plt
+from IPython import display
+
+plt.ion()
+
+def plot(scores, mean_scores):
+    display.clear_output(wait=True)
+    display.display(plt.gcf())
+    plt.clf()
+    plt.title('Training...')
+    plt.xlabel('Number of Games')
+    plt.ylabel('Score')
+    plt.plot(scores)
+    plt.plot(mean_scores)
+    plt.ylim(ymin=0)
+    plt.text(len(scores)-1, scores[-1], str(scores[-1]))
+    plt.text(len(mean_scores)-1, mean_scores[-1], str(mean_scores[-1]))
+    plt.show(block=False)
+    plt.pause(.1)
+
+
+plot_scores = []
+plot_mean_scores = []
+total_score = 0
+num_games = 0
 
 num_episodes = 1000
 for i_episode in range(num_episodes):
     # Initialize the environment and state
     game.restart()
+    num_games += 1
     last_screen = get_screen(game)
     current_screen = get_screen(game)
     state = current_screen - last_screen
@@ -233,12 +259,18 @@ for i_episode in range(num_episodes):
         # Move to the next state
         state = next_state
 
-        print(score)
+        plot_scores.append(score)
+        total_score += score
+        mean_score = total_score / num_games
+        plot_mean_scores.append(mean_score)
+        #plot(plot_scores, plot_mean_scores)
+  
         # Perform one step of the optimization (on the policy network)
         optimize_model()
         if done:
             episode_durations.append(t + 1)
             break
+
     # Update the target network, copying all weights and biases in DQN
     if i_episode % TARGET_UPDATE == 0:
         target_net.load_state_dict(policy_net.state_dict())
