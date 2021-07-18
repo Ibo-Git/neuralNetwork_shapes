@@ -24,7 +24,7 @@ BLUE2 = (0, 100, 255)
 BLACK = (0, 0, 0)
 
 class SnakeGame():
-    def __init__(self, width = 32, height = 18, blocksize = 30, init_snake_length = 3, gamespeed = 10, food_gain = 1):
+    def __init__(self, width = 32, height = 18, blocksize = 30, init_snake_length = 3, gamespeed = 20, food_gain = 1, player = 'AI', show_UI = 1):
         # init user set parameters
         self.blocksize = blocksize
         self.width = width
@@ -34,8 +34,9 @@ class SnakeGame():
         self.food_gain = food_gain
         self.init_snake_length = init_snake_length
 
+        self.player = player
         # init display
-        self.show_UI = 1
+        self.show_UI = show_UI
         if self.show_UI:
             self.display = pygame.display.set_mode((self.width * self.blocksize, self.height * self.blocksize))
             pygame.display.set_caption('High IQ Snake!!!')
@@ -50,12 +51,13 @@ class SnakeGame():
         self.game_over = 0
         self.direction = Direction.RIGHT
         self.food = None
+        self.reward = 0
         self.snake_buffer = self.init_snake_length
+        self.frame_iteration = 0
 
         self.head = self.init_head()
         self.snake = self.init_snake()
         self.place_food()
-
 
     def place_food(self):
         x = random.randint(0, self.width - 1)
@@ -102,61 +104,82 @@ class SnakeGame():
         self.snake.appendleft(self.head)
 
         if self.head == self.food:
+            self.reward = 10
             self.snake_buffer = self.snake_buffer + self.food_gain
             self.score += 1
             self.place_food()
             self.snake_buffer -= 1
         elif self.snake_buffer != 0:
             self.snake_buffer -= 1
+            self.reward = 0
         else:
             self.snake.pop()
+            self.reward = 0
             
 
     
-    def play_step(self):
+    def play_step(self, action):
+        self.frame_iteration += 1
+
         for event in pygame.event.get():
-        
             if event.type == pygame.QUIT:
-                    pygame.quit()
-                    quit()
-                    
-            if event.type == pygame.KEYUP:
-                if event.key == pygame.K_UP or event.key == pygame.K_w:
-                    self.direction = Direction.UP
+                pygame.quit()
+                quit()
 
-                if event.key == pygame.K_DOWN or event.key == pygame.K_s:
-                    self.direction = Direction.DOWN
+            if self.player == 'human':                   
+                if event.type == pygame.KEYUP:
+                    if event.key == pygame.K_UP or event.key == pygame.K_w:
+                        self.direction = Direction.UP
 
-                if event.key == pygame.K_LEFT or event.key == pygame.K_a:
-                    self.direction = Direction.LEFT
+                    if event.key == pygame.K_DOWN or event.key == pygame.K_s:
+                        self.direction = Direction.DOWN
 
-                if event.key == pygame.K_RIGHT or event.key == pygame.K_d:
-                    self.direction = Direction.RIGHT
+                    if event.key == pygame.K_LEFT or event.key == pygame.K_a:
+                        self.direction = Direction.LEFT
+
+                    if event.key == pygame.K_RIGHT or event.key == pygame.K_d:
+                        self.direction = Direction.RIGHT
         
+        if self.player == 'AI':
+            if action.index(max(action)) == 0:
+                self.direction = Direction.UP
+
+            if action.index(max(action)) == 1:
+                self.direction = Direction.DOWN
+
+            if action.index(max(action)) == 2:
+                self.direction = Direction.LEFT
+
+            if action.index(max(action)) == 3:
+                self.direction = Direction.RIGHT
+
         self.update_snake_and_food()
 
-        if self.is_collision(): 
+        if self.is_collision() or self.frame_iteration > 100*len(self.snake):
+            self.reward = -10
             self.game_over = 1
-            return self.game_over, self.score
+            return self.reward, self.game_over, self.score
 
         if self.show_UI:
             self.update_UI()
 
-        self.clock.tick(self.gamespeed)
+        if self.show_UI: self.clock.tick(self.gamespeed)
 
-        return self.game_over, self.score
+        return self.reward, self.game_over, self.score
     
 
-    def is_collision(self):
-        if self.head.x > self.width - 1 or self.head.x < 0 or self.head.y > self.height - 1 or self.head.y < 0:
+    def is_collision(self, point=None):
+        if point == None:
+            point = self.head 
+
+        if point.x > self.width - 1 or point.x < 0 or point.y > self.height - 1 or point.y < 0:
             return True
-        
-        for i in range(1, len(self.snake)):
-            if self.head == self.snake[i]: 
-                return True
-            
-            elif i == len(self.snake):
-                return False
+
+        if point in [self.snake[i] for i in range(1, len(self.snake))]:
+            return True
+        else:
+            return False
+ 
 
 
     def update_UI(self):
