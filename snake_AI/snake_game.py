@@ -73,8 +73,10 @@ class SnakeGame():
     
 
     def init_head(self):
-        x = random.randint(self.width // 4, self.width // 4 * 3)
-        y = random.randint(self.height // 4, self.height // 4 * 3)
+        #x = random.randint(self.width // 4, self.width // 4 * 3)
+        #y = random.randint(self.height // 4, self.height // 4 * 3)
+        x = self.width//2
+        y = self.height//2
         init_point = Point(x, y)
 
         return init_point
@@ -141,16 +143,16 @@ class SnakeGame():
                         self.direction = Direction.RIGHT
         
         if self.player == 'AI':
-            if action.index(max(action)) == 0 and self.direction != Direction.DOWN:
+            if action == 0 and self.direction != Direction.DOWN:
                 self.direction = Direction.UP
 
-            if action.index(max(action)) == 1 and self.direction != Direction.UP:
+            if action == 1 and self.direction != Direction.UP:
                 self.direction = Direction.DOWN
 
-            if action.index(max(action)) == 2 and self.direction != Direction.RIGHT:
+            if action == 2 and self.direction != Direction.RIGHT:
                 self.direction = Direction.LEFT
 
-            if action.index(max(action)) == 3 and self.direction != Direction.LEFT:
+            if action == 3 and self.direction != Direction.LEFT:
                 self.direction = Direction.RIGHT
 
         self.update_snake_and_food()

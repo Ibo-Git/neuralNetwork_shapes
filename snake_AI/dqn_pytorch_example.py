@@ -9,13 +9,21 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.modules import flatten
 import torch.optim as optim
 import torchvision.transforms as T
 from PIL import Image
 
 from snake_game import SnakeGame
 
-game = SnakeGame(width=4, height=4)
+game = SnakeGame(width=6, height=6, show_UI=0, gamespeed=10000)
+BATCH_SIZE = 256
+GAMMA = 0.9
+EPS_START = 0.9
+EPS_END = 0.05
+EPS_DECAY = 100
+TARGET_UPDATE = 1
+
 
 # set up matplotlib
 is_ipython = 'inline' in matplotlib.get_backend()
@@ -55,33 +63,39 @@ class DQN(nn.Module):
 
     def __init__(self, h, w, outputs):
         super(DQN, self).__init__()
-        self.kernel_size = 3
-        self.stride = 1
-        self.padding = 0
+
+        self.kernel_size_1 = 2
+        self.kernel_size_2 = 2
+        self.stride_1 = 2
+        self.stride_2 = 1
+        self.padding_1 = 0
+        self.padding_2 = 0
+
+        self.channel_output_conv_1 = 16
+        self.channel_output_conv_2 = 32
+
+        convw = self.conv2d_size_out( self.conv2d_size_out( w, self.kernel_size_1, self.stride_1, self.padding_1 ), self.kernel_size_2, self.stride_2, self.padding_2 )
+        convh = self.conv2d_size_out( self.conv2d_size_out( h, self.kernel_size_1, self.stride_1, self.padding_1 ), self.kernel_size_2, self.stride_2, self.padding_2 )
+        linear_input_size = self.channel_output_conv_2 * convw * convh
+
         self.net = nn.Sequential(
-            nn.Conv2d(1, 16, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding),
-            nn.BatchNorm2d(16),
+            nn.Conv2d(1, self.channel_output_conv_1, kernel_size=self.kernel_size_1, stride=self.stride_1, padding=self.padding_1),
+            nn.BatchNorm2d(self.channel_output_conv_1),
             nn.ReLU(),
-            nn.Conv2d(16, 32, kernel_size=self.kernel_size, stride=self.stride, padding=self.padding),
-            nn.BatchNorm2d(32),
-            nn.ReLU()
+            nn.Conv2d(self.channel_output_conv_1, self.channel_output_conv_2, kernel_size=self.kernel_size_2, stride=self.stride_2, padding=self.padding_2),
+            nn.BatchNorm2d(self.channel_output_conv_2),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(linear_input_size, 256),
+            nn.Linear(256, outputs)
         )
-
-        # Number of Linear input connections depends on output of conv2d layers
-        # and therefore the input image size, so compute it.
-        def conv2d_size_out(size, kernel_size = self.kernel_size, stride = self.stride, padding = self.padding):
-            return ((size - kernel_size + 2*padding) // stride ) + 1
-        convw = conv2d_size_out(conv2d_size_out(conv2d_size_out(w)))
-        convh = conv2d_size_out(conv2d_size_out(conv2d_size_out(h)))
-        linear_input_size = convw * convh * 32
-        self.head = nn.Linear(linear_input_size, outputs)
-
-    # Called with either one element to determine next action, or a batch
-    # during optimization. Returns tensor([[left0exp,right0exp]...]).
+  
     def forward(self, x):
-        x = x.to(device)
         x = self.net(x)
-        return self.head(x.view(x.size(0), -1))
+        return x
+    
+    def conv2d_size_out(self, size, kernel_size, stride, padding):
+            return ((size - kernel_size + 2*padding) // stride ) + 1
 
 def get_screen(game):
     grid = torch.zeros(game.width, game.height)
@@ -110,12 +124,7 @@ def get_screen(game):
 
 
 
-BATCH_SIZE = 128
-GAMMA = 0.999
-EPS_START = 0.9
-EPS_END = 0.05
-EPS_DECAY = 200
-TARGET_UPDATE = 10
+
 
 # Get screen size so that we can initialize layers correctly based on shape
 # returned from AI gym. Typical dimensions at this point are close to 3x40x90
@@ -141,21 +150,17 @@ steps_done = 0
 def select_action(state):
     global steps_done
     sample = random.random()
-    eps_threshold = EPS_END + (EPS_START - EPS_END) * \
-        math.exp(-1. * steps_done / EPS_DECAY)
+    eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
-    final_move = [0, 0, 0, 0]
-    if sample > eps_threshold:
-        move = random.randint(0, 3)
-        final_move[move] = 1
+    if sample > eps_threshold and steps_done < 300:
+        action = random.randint(0, 3)
     # exploitation
     else:
         state_0 = torch.unsqueeze(state, 0)
         prediction = policy_net(state_0)
-        move = torch.argmax(prediction).item()
-        final_move[move] = 1
+        action = torch.argmax(prediction).item()
 
-    return torch.tensor(final_move)
+    return torch.tensor(action).view(1)
 
 
 
@@ -168,9 +173,6 @@ def optimize_model():
     if len(memory) < BATCH_SIZE:
         return
     transitions = memory.sample(BATCH_SIZE)
-    # Transpose the batch (see https://stackoverflow.com/a/19343/3343043 for
-    # detailed explanation). This converts batch-array of Transitions
-    # to Transition of batch-arrays.
     batch = Transition(*zip(*transitions))
 
     # Compute a mask of non-final states and concatenate the batch elements
@@ -181,21 +183,14 @@ def optimize_model():
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
 
-    # Compute Q(s_t, a) - the model computes Q(s_t), then we select the
-    # columns of actions taken. These are the actions which would've been taken
-    # for each batch state according to policy_net
-    state_action_values = policy_net(state_batch.unsqueeze(1))
-    state_action_values = state_action_values[action_batch.reshape(BATCH_SIZE, -1) == 1]
 
-    # Compute V(s_{t+1}) for all next states.
-    # Expected values of actions for non_final_next_states are computed based
-    # on the "older" target_net; selecting their best reward with max(1)[0].
-    # This is merged based on the mask, such that we'll have either the expected
-    # state value or 0 in case the state was final.
+    # compute Q values
+    state_action_values = policy_net(state_batch.unsqueeze(1)).gather(1, action_batch.unsqueeze(1)) # Q current state
+
     next_state_values = torch.zeros(BATCH_SIZE, device=device)
-    next_state_values[non_final_mask] = target_net(non_final_next_states.unsqueeze(1)).max(1)[0].detach()
-    # Compute the expected Q values
-    expected_state_action_values = (next_state_values * GAMMA) + reward_batch
+    next_state_values[non_final_mask] = target_net(non_final_next_states.unsqueeze(1)).max(1)[0].detach()    # Q next state
+
+    expected_state_action_values = (next_state_values * GAMMA) + reward_batch  # target Q next state
 
     # Compute Huber loss
     criterion = nn.SmoothL1Loss()
@@ -204,8 +199,8 @@ def optimize_model():
     # Optimize the model
     optimizer.zero_grad()
     loss.backward()
-    for param in policy_net.parameters():
-        param.grad.data.clamp_(-1, 1)
+    #for param in policy_net.parameters():
+    #    param.grad.data.clamp_(-1, 1)
     optimizer.step()
 
 
@@ -216,7 +211,7 @@ plt.ion()
 
 def plot(scores, mean_scores):
     display.clear_output(wait=True)
-    display.display(plt.gcf())
+    #display.display(plt.gcf())
     plt.clf()
     plt.title('Training...')
     plt.xlabel('Number of Games')
@@ -234,50 +229,45 @@ plot_scores = []
 plot_mean_scores = []
 total_score = 0
 num_games = 0
+record = 0
 
-num_episodes = 1000
-for i_episode in range(num_episodes):
+while True:
     # Initialize the environment and state
     game.restart()
     num_games += 1
-    last_screen = get_screen(game)
-    current_screen = get_screen(game)
-    state = current_screen - last_screen
+    
     for t in count():
+        state = get_screen(game)
         # Select and perform an action
         action = select_action(state)
-        reward, done, score = game.play_step(action.tolist())
+        reward, done, score = game.play_step(action.item())
         reward = torch.tensor([reward], device=device)
 
         # Observe new state
-        last_screen = current_screen
-        current_screen = get_screen(game)
         if not done:
-            next_state = current_screen - last_screen
+            next_state = get_screen(game)
         else:
             next_state = None
 
         # Store the transition in memory
         memory.push(state, action, next_state, reward)
 
-        # Move to the next state
-        state = next_state
-
-
-  
         # Perform one step of the optimization (on the policy network)
         optimize_model()
         if done:
-            print('Game: ', num_games, 'Score:', score)
-            plot_scores.append(score)
-            total_score += score
-            mean_score = total_score / num_games
-            plot_mean_scores.append(mean_score)
-            plot(plot_scores, plot_mean_scores)
-            episode_durations.append(t + 1)
+            if score > record: record = score
+            if num_games % 100 == 0:
+                print('Game: ', num_games, 'Score: ', score, 'Record: ', record)
+            
+            #plot_scores.append(score)
+            #total_score += score
+            #mean_score = total_score / num_games
+            #plot_mean_scores.append(mean_score)
+            #plot(plot_scores, plot_mean_scores)
+            #episode_durations.append(num_games + 1)
             break
 
     # Update the target network, copying all weights and biases in DQN
-    if i_episode % TARGET_UPDATE == 0:
+    if num_games % TARGET_UPDATE == 0:
         target_net.load_state_dict(policy_net.state_dict())
 
