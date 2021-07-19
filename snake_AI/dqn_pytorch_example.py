@@ -16,13 +16,13 @@ from PIL import Image
 
 from snake_game import SnakeGame
 
-game = SnakeGame(width=6, height=6, show_UI=0, gamespeed=10000)
-BATCH_SIZE = 256
+game = SnakeGame(width=5, height=5, show_UI=0, gamespeed=1000000)
+BATCH_SIZE = 128
 GAMMA = 0.9
 EPS_START = 0.9
 EPS_END = 0.05
-EPS_DECAY = 100
-TARGET_UPDATE = 1
+EPS_DECAY = 200
+TARGET_UPDATE = 10
 
 
 # set up matplotlib
@@ -38,7 +38,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 Transition = namedtuple('Transition',
-                        ('state', 'action', 'next_state', 'reward'))
+                        ('state', 'action', 'next_state', 'reward', 'done'))
 
 
 class ReplayMemory(object):
@@ -68,11 +68,11 @@ class DQN(nn.Module):
         self.kernel_size_2 = 2
         self.stride_1 = 2
         self.stride_2 = 1
-        self.padding_1 = 0
-        self.padding_2 = 0
+        self.padding_1 = 1
+        self.padding_2 = 1
 
-        self.channel_output_conv_1 = 16
-        self.channel_output_conv_2 = 32
+        self.channel_output_conv_1 = 8
+        self.channel_output_conv_2 = 16
 
         convw = self.conv2d_size_out( self.conv2d_size_out( w, self.kernel_size_1, self.stride_1, self.padding_1 ), self.kernel_size_2, self.stride_2, self.padding_2 )
         convh = self.conv2d_size_out( self.conv2d_size_out( h, self.kernel_size_1, self.stride_1, self.padding_1 ), self.kernel_size_2, self.stride_2, self.padding_2 )
@@ -86,8 +86,9 @@ class DQN(nn.Module):
             nn.BatchNorm2d(self.channel_output_conv_2),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(linear_input_size, 256),
-            nn.Linear(256, outputs)
+            nn.Linear(linear_input_size, 64),
+            nn.ReLU(),
+            nn.Linear(64, outputs)
         )
   
     def forward(self, x):
@@ -98,7 +99,7 @@ class DQN(nn.Module):
             return ((size - kernel_size + 2*padding) // stride ) + 1
 
 def get_screen(game):
-    grid = torch.zeros(game.width, game.height)
+    grid = -1*torch.ones(game.width, game.height)
 
     for i in range(1, len(game.snake)):
         grid[game.snake[i].x, game.snake[i].y] = 1
@@ -140,7 +141,7 @@ target_net = DQN(screen_height, screen_width, n_actions).to(device)
 target_net.load_state_dict(policy_net.state_dict())
 target_net.eval()
 
-optimizer = optim.RMSprop(policy_net.parameters())
+optimizer = optim.Adam(policy_net.parameters(), lr = 0.01)
 memory = ReplayMemory(10000)
 
 
@@ -152,7 +153,7 @@ def select_action(state):
     sample = random.random()
     eps_threshold = EPS_END + (EPS_START - EPS_END) * math.exp(-1. * steps_done / EPS_DECAY)
     steps_done += 1
-    if sample > eps_threshold and steps_done < 300:
+    if sample < eps_threshold and steps_done < 500:
         action = random.randint(0, 3)
     # exploitation
     else:
@@ -165,7 +166,6 @@ def select_action(state):
 
 
 
-episode_durations = []
 
 
 
@@ -174,33 +174,27 @@ def optimize_model():
         return
     transitions = memory.sample(BATCH_SIZE)
     batch = Transition(*zip(*transitions))
-
-    # Compute a mask of non-final states and concatenate the batch elements
-    # (a final state would've been the one after which simulation ended)
-    non_final_mask = torch.tensor(tuple(map(lambda s: s is not None, batch.next_state)), device=device, dtype=torch.bool)
-    non_final_next_states = torch.cat([s for s in batch.next_state if s is not None])
+    
     state_batch = torch.cat(batch.state)
     action_batch = torch.cat(batch.action)
     reward_batch = torch.cat(batch.reward)
+    next_state_batch = torch.cat(batch.next_state)
+    done_batch = torch.cat(batch.done)
+
+    curr_Q = policy_net(state_batch.unsqueeze(1)).gather(1, action_batch.unsqueeze(1))
+    next_Q = target_net(next_state_batch.unsqueeze(1)).max(1)[0].detach()
+    expected_Q = reward_batch + (1 - done_batch) * (GAMMA * next_Q) 
 
 
-    # compute Q values
-    state_action_values = policy_net(state_batch.unsqueeze(1)).gather(1, action_batch.unsqueeze(1)) # Q current state
-
-    next_state_values = torch.zeros(BATCH_SIZE, device=device)
-    next_state_values[non_final_mask] = target_net(non_final_next_states.unsqueeze(1)).max(1)[0].detach()    # Q next state
-
-    expected_state_action_values = (next_state_values * GAMMA) + reward_batch  # target Q next state
-
-    # Compute Huber loss
-    criterion = nn.SmoothL1Loss()
-    loss = criterion(state_action_values, expected_state_action_values.unsqueeze(1))
+    # Compute  loss
+    criterion = nn.MSELoss()
+    loss = criterion(curr_Q, expected_Q.unsqueeze(1))
 
     # Optimize the model
     optimizer.zero_grad()
     loss.backward()
-    #for param in policy_net.parameters():
-    #    param.grad.data.clamp_(-1, 1)
+    for param in policy_net.parameters():
+        param.grad.data.clamp_(-1, 1)
     optimizer.step()
 
 
@@ -242,29 +236,29 @@ while True:
         action = select_action(state)
         reward, done, score = game.play_step(action.item())
         reward = torch.tensor([reward], device=device)
+        done = torch.tensor([done], device=device)
 
         # Observe new state
-        if not done:
-            next_state = get_screen(game)
-        else:
-            next_state = None
+        next_state = get_screen(game)
+
 
         # Store the transition in memory
-        memory.push(state, action, next_state, reward)
+        memory.push(state, action, next_state, reward, done)
 
         # Perform one step of the optimization (on the policy network)
+
         optimize_model()
         if done:
             if score > record: record = score
-            if num_games % 100 == 0:
-                print('Game: ', num_games, 'Score: ', score, 'Record: ', record)
-            
+            if num_games % BATCH_SIZE == 0:
+                
             #plot_scores.append(score)
-            #total_score += score
-            #mean_score = total_score / num_games
+                total_score += score
+                mean_score = total_score / num_games
             #plot_mean_scores.append(mean_score)
             #plot(plot_scores, plot_mean_scores)
-            #episode_durations.append(num_games + 1)
+                print('Game:', num_games, '    Record in batch:', record, '     mean score:', mean_score)
+                record = 0
             break
 
     # Update the target network, copying all weights and biases in DQN
