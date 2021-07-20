@@ -197,12 +197,13 @@ def train():
             # Perform one step of the optimization (on the policy network)
             agent.optimize_model()
 
-            # if game is done store record, plot and log results
+            # if game is done
             if done:
+                # store record and save net
                 if score > record: 
                     record = score
-                    #agent.policy_net.save()
-                                    
+
+                # plot results                                    
                 if show_plot:
                     total_score += score
                     mean_score = total_score / num_games
@@ -210,6 +211,7 @@ def train():
                     plot_mean_scores.append(mean_score)
                     plot(plot_scores, plot_mean_scores)
 
+                # log results
                 total_steps_per_game += t
                 total_score_batch += score
                 if num_games % agent.batch_size == 0:
@@ -219,6 +221,7 @@ def train():
                     record = 0
                     total_score_batch = 0
                     total_steps_per_game = 0
+                    agent.policy_net.save()
                 
                 break
 
