@@ -30,7 +30,7 @@ def play():
             # Get current state
             state = agent.get_state()
             # Select and perform an action
-            action = agent.select_action(state)
+            action = agent.select_action(state, mode='eval')
             _, done, score = game.play_step(action.item())
 
             # if game is done store record, plot and log results

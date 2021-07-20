@@ -112,13 +112,13 @@ class SnakeAgent():
         return torch.unsqueeze(grid, 0)
 
 
-    def select_action(self, state):
+    def select_action(self, state, mode='train'):
         sample = random.random()
         eps_threshold = self.eps_end + (self.eps_start - self.eps_end) * math.exp(-1. * self.steps_done / self.eps_decay)
         self.steps_done += 1
 
         # exploration
-        if sample < eps_threshold and self.steps_done < self.replay_memory_size:
+        if sample < eps_threshold and self.steps_done < self.replay_memory_size and mode == 'train':
             action = random.randint(0, 3)
 
         # exploitation
