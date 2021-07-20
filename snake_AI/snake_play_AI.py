@@ -1,17 +1,8 @@
-import math
-import random
-from collections import deque, namedtuple
-from itertools import count
-
-import matplotlib.pyplot as plt
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from IPython import display
 
-from snake_game import SnakeGame
-from snake_model import DQN
 from snake_agent import SnakeAgent
+from snake_game import SnakeGame
+
 
 def play():
 
@@ -19,7 +10,7 @@ def play():
     game = SnakeGame(width=4, height=4, show_UI=1, gamespeed=5)
     agent = SnakeAgent(game, lr=0.001, batch_size=64, replay_memory_size=10000, target_update=10, device=device)
 
-    agent.policy_net.load('snake_model', agent.policy_net)
+    agent.policy_net.load('snake_model', agent.policy_net, device)
 
 
     while True:
@@ -34,7 +25,8 @@ def play():
             _, done, score = game.play_step(action.item())
 
             # if game is done store record, plot and log results
-            if done:             
+            if done:
+                print(score)             
                 break
 
 
