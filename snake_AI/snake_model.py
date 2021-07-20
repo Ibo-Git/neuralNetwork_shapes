@@ -32,7 +32,8 @@ class DQN(nn.Module):
             nn.Flatten(),
             nn.Linear(linear_input_size, 128),
             nn.ReLU(),
-            nn.Linear(128, outputs)
+            nn.Linear(128, outputs),
+            nn.Softmax()
         )
   
     def forward(self, x):
