@@ -5,7 +5,7 @@ import os
 
 class DQN(nn.Module):
 
-    def __init__(self, h, w, outputs):
+    def __init__(self, h, w, outputs, device):
         super(DQN, self).__init__()
 
         self.kernel_size_1 = 5
@@ -14,6 +14,7 @@ class DQN(nn.Module):
         self.stride_2 = 2
         self.padding_1 = 10
         self.padding_2 = 10
+        self.device = device
 
         self.channel_output_conv_1 = 16
         self.channel_output_conv_2 = 32
@@ -36,12 +37,13 @@ class DQN(nn.Module):
         )
   
     def forward(self, x):
+        x = x.to(self.device)
         x = self.net(x)
         return x
     
     
     def conv2d_size_out(self, size, kernel_size, stride, padding):
-            return ((size - kernel_size + 2*padding) // stride ) + 1
+            return ((size - kernel_size + 2 * padding) // stride ) + 1
 
 
     def save(self, file_name = 'snake_model.pth'):
@@ -51,5 +53,13 @@ class DQN(nn.Module):
 
         file_name = os.path.join(model_folder_path, file_name)
         torch.save(self.state_dict(), file_name)
+
+
+    def load(self, filename, model):
+        state = torch.load(os.path.join('.\saved_files', filename + '.pth'))
+
+        model = model
+        model.load_state_dict(state)
+
         
 
