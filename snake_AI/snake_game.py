@@ -109,8 +109,15 @@ class SnakeGame():
             self.reward = 10
             self.snake_buffer = self.snake_buffer + self.food_gain
             self.score += 1
-            self.place_food()
+
+            if self.snake != self.width * self.height:
+                self.place_food()
+            else:
+                self.game_over = 1
+                print('Gg wp! :)')
+
             self.snake_buffer -= 1
+            self.frame_iteration = 0
         elif self.snake_buffer != 0:
             self.snake_buffer -= 1
             self.reward = 0

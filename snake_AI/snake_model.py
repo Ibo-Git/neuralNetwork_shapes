@@ -8,15 +8,15 @@ class DQN(nn.Module):
     def __init__(self, h, w, outputs):
         super(DQN, self).__init__()
 
-        self.kernel_size_1 = 2
-        self.kernel_size_2 = 2
-        self.stride_1 = 2
-        self.stride_2 = 1
-        self.padding_1 = 1
-        self.padding_2 = 1
+        self.kernel_size_1 = 5
+        self.kernel_size_2 = 5
+        self.stride_1 = 1
+        self.stride_2 = 2
+        self.padding_1 = 10
+        self.padding_2 = 10
 
-        self.channel_output_conv_1 = 4
-        self.channel_output_conv_2 = 8
+        self.channel_output_conv_1 = 16
+        self.channel_output_conv_2 = 32
 
         convw = self.conv2d_size_out( self.conv2d_size_out( w, self.kernel_size_1, self.stride_1, self.padding_1 ), self.kernel_size_2, self.stride_2, self.padding_2 )
         convh = self.conv2d_size_out( self.conv2d_size_out( h, self.kernel_size_1, self.stride_1, self.padding_1 ), self.kernel_size_2, self.stride_2, self.padding_2 )
@@ -30,9 +30,9 @@ class DQN(nn.Module):
             nn.BatchNorm2d(self.channel_output_conv_2),
             nn.ReLU(),
             nn.Flatten(),
-            nn.Linear(linear_input_size, 64),
+            nn.Linear(linear_input_size, 128),
             nn.ReLU(),
-            nn.Linear(64, outputs)
+            nn.Linear(128, outputs)
         )
   
     def forward(self, x):

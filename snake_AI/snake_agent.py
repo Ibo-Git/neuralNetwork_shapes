@@ -32,7 +32,6 @@ def plot(scores, mean_scores):
 
 
 # if gpu is to be used
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward', 'done'))
 
@@ -54,22 +53,24 @@ class ReplayMemory(object):
 
 
 class SnakeAgent():
-    def __init__(self, game, lr, batch_size, target_update):
+    def __init__(self, game, lr, batch_size, replay_memory_size, target_update, device):
         # init game
         self.game = game
+        self.device = device
 
         # init nets
         self.n_actions = 4
-        self.policy_net = DQN(game.width, game.height, self.n_actions).to(device)
+        self.policy_net = DQN(game.width, game.height, self.n_actions).to(self.device)
 
-        self.target_net = DQN(game.width, game.height, self.n_actions).to(device)    
+        self.target_net = DQN(game.width, game.height, self.n_actions).to(self.device)    
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
         self.target_update = target_update
 
         # init optimizer and memory
         self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
-        self.memory = ReplayMemory(10000)
+        self.replay_memory_size = replay_memory_size
+        self.memory = ReplayMemory(replay_memory_size)
         
         # init training parameters
         self.batch_size = batch_size
@@ -77,17 +78,23 @@ class SnakeAgent():
 
         # exploration parameters
         self.eps_start = 0.9
-        self.eps_end = 0.05
-        self.eps_decay = 200
+        self.eps_end = 0
+        self.eps_decay = replay_memory_size
         self.steps_done = 0
 
 
 
     def get_state(self):
-        grid = -1*torch.ones(self.game.width, self.game.height)
+
+        grid_val = -10
+        food_val = 1000
+        snake_val = 1
+        head_val = 10
+
+        grid = grid_val*torch.ones(self.game.width, self.game.height)
 
         for i in range(1, len(self.game.snake)):
-            grid[self.game.snake[i].x, self.game.snake[i].y] = 1
+            grid[self.game.snake[i].x, self.game.snake[i].y] = snake_val
 
         if self.game.head.x == self.game.width:
             x_location = self.game.width - 1
@@ -99,8 +106,8 @@ class SnakeAgent():
         else:
             y_location = self.game.head.y
 
-        grid[x_location, y_location] = 2
-        grid[self.game.food.x, self.game.food.y] = 3
+        grid[x_location, y_location] = head_val
+        grid[self.game.food.x, self.game.food.y] = food_val
 
         return torch.unsqueeze(grid, 0)
 
@@ -111,7 +118,7 @@ class SnakeAgent():
         self.steps_done += 1
 
         # exploration
-        if sample < eps_threshold and self.steps_done < 500:
+        if sample < eps_threshold and self.steps_done < self.replay_memory_size:
             action = random.randint(0, 3)
 
         # exploitation
@@ -131,11 +138,11 @@ class SnakeAgent():
         transitions = self.memory.sample(self.batch_size)
         batch = Transition(*zip(*transitions))
         
-        state_batch = torch.cat(batch.state)
-        action_batch = torch.cat(batch.action)
-        reward_batch = torch.cat(batch.reward)
-        next_state_batch = torch.cat(batch.next_state)
-        done_batch = torch.cat(batch.done)
+        state_batch = torch.cat(batch.state).to(self.device)
+        action_batch = torch.cat(batch.action).to(self.device)
+        reward_batch = torch.cat(batch.reward).to(self.device)
+        next_state_batch = torch.cat(batch.next_state).to(self.device)
+        done_batch = torch.cat(batch.done).to(self.device)
 
         # Calculate Q values
         curr_Q = self.policy_net(state_batch.unsqueeze(1)).gather(1, action_batch.unsqueeze(1))
@@ -157,11 +164,14 @@ def train():
     plot_scores = []
     plot_mean_scores = []
     total_score = 0
+    total_score_batch = 0
+    total_steps_per_game = 0
     num_games = 0
     record = 0
 
-    game = SnakeGame(width=5, height=5, show_UI=0, gamespeed=100)
-    agent = SnakeAgent(game, lr=0.01, batch_size=128, target_update=10)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    game = SnakeGame(width=4, height=4, show_UI=0, gamespeed=1000)
+    agent = SnakeAgent(game, lr=0.001, batch_size=64, replay_memory_size=10000, target_update=10, device=device)
     show_plot = False
 
     while True:
@@ -191,19 +201,25 @@ def train():
             if done:
                 if score > record: 
                     record = score
-
-                total_score += score
-                mean_score = total_score / num_games
-
+                    #agent.policy_net.save()
+                                    
                 if show_plot:
+                    total_score += score
+                    mean_score = total_score / num_games
                     plot_scores.append(score)
                     plot_mean_scores.append(mean_score)
                     plot(plot_scores, plot_mean_scores)
 
+                total_steps_per_game += t
+                total_score_batch += score
                 if num_games % agent.batch_size == 0:
-                    print('Game:', num_games, '    Record in batch:', record, '    mean score:', mean_score)
+                    mean_score = total_score_batch / agent.batch_size
+                    mean_steps_per_game = total_steps_per_game / agent.batch_size
+                    print('Game:', num_games, '    Record in batch:', record, '    mean score batch:', mean_score, '    mean steps per game:', mean_steps_per_game)
                     record = 0
-
+                    total_score_batch = 0
+                    total_steps_per_game = 0
+                
                 break
 
         # Update the target network, copying all weights and biases in DQN
