@@ -124,7 +124,7 @@ class SnakeAgent():
         # exploitation
         else:
             state_0 = torch.unsqueeze(state, 0)
-            prediction = self.policy_net(state_0)
+            prediction = self.policy_net(state_0.to(self.device))
             action = torch.argmax(prediction).item()
 
         return torch.tensor(action).view(1)

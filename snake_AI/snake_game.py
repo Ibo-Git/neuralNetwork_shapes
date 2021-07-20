@@ -110,11 +110,10 @@ class SnakeGame():
             self.snake_buffer = self.snake_buffer + self.food_gain
             self.score += 1
 
-            if self.snake != self.width * self.height:
+            if len(self.snake) != self.width * self.height:
                 self.place_food()
             else:
                 self.game_over = 1
-                print('Gg wp! :)')
 
             self.snake_buffer -= 1
             self.frame_iteration = 0
