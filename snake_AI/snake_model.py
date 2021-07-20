@@ -54,10 +54,9 @@ class DQN(nn.Module):
 
 
     def load(self, filename, model):
-        state = torch.load(os.path.join('.\saved_files', filename + '.pth'))
+        model.load_state_dict(torch.load(os.path.join('.\saved_files', filename + '.pth')))
+        model.eval()
 
-        model = model
-        model.load_state_dict(state)
 
         
 
