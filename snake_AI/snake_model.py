@@ -5,7 +5,7 @@ import os
 
 class DQN(nn.Module):
 
-    def __init__(self, h, w, outputs, device):
+    def __init__(self, h, w, outputs):
         super(DQN, self).__init__()
 
         self.kernel_size_1 = 5
@@ -14,7 +14,6 @@ class DQN(nn.Module):
         self.stride_2 = 2
         self.padding_1 = 10
         self.padding_2 = 10
-        self.device = device
 
         self.channel_output_conv_1 = 16
         self.channel_output_conv_2 = 32
@@ -37,7 +36,6 @@ class DQN(nn.Module):
         )
   
     def forward(self, x):
-        x = x.to(self.device)
         x = self.net(x)
         return x
     
