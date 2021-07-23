@@ -79,7 +79,7 @@ class SnakeAgent():
         # exploration parameters
         self.eps_start = 0.9
         self.eps_end = 0
-        self.eps_decay = replay_memory_size
+        self.eps_decay = 500
         self.steps_done = 0
 
 
@@ -138,15 +138,15 @@ class SnakeAgent():
         transitions = self.memory.sample(self.batch_size)
         batch = Transition(*zip(*transitions))
         
-        state_batch = torch.cat(batch.state).to(self.device)
+        state_batch = torch.stack(batch.state).to(self.device)
         action_batch = torch.cat(batch.action).to(self.device)
         reward_batch = torch.cat(batch.reward).to(self.device)
-        next_state_batch = torch.cat(batch.next_state).to(self.device)
+        next_state_batch = torch.stack(batch.next_state).to(self.device)
         done_batch = torch.cat(batch.done).to(self.device)
 
         # Calculate Q values
-        curr_Q = self.policy_net(state_batch.unsqueeze(1)).gather(1, action_batch.unsqueeze(1))
-        next_Q = self.target_net(next_state_batch.unsqueeze(1)).max(1)[0].detach()
+        curr_Q = self.policy_net(state_batch).gather(1, action_batch.unsqueeze(1))
+        next_Q = self.target_net(next_state_batch).max(1)[0].detach()
         expected_Q = reward_batch + (1 - done_batch) * (self.gamma * next_Q) 
 
         # Compute  loss
@@ -171,7 +171,7 @@ def train():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     game = SnakeGame(width=4, height=4, show_UI=0, gamespeed=1000)
-    agent = SnakeAgent(game, lr=0.001, batch_size=64, replay_memory_size=10000, target_update=10, device=device)
+    agent = SnakeAgent(game, lr=0.0008, batch_size=72, replay_memory_size=10000, target_update=10, device=device)
     show_plot = False
 
     while True:
@@ -179,20 +179,27 @@ def train():
         game.restart()
         num_games += 1
         
+        previous_state = agent.get_state()
         for t in count():
             # Get current state
-            state = agent.get_state()
+            current_state = agent.get_state()
+            state_memory = torch.cat([previous_state, current_state], 0)             
+
             # Select and perform an action
-            action = agent.select_action(state)
+            action = agent.select_action(state_memory)
             reward, done, score = game.play_step(action.item())
             reward = torch.tensor([reward], device=device)
             done = torch.tensor([done], device=device)
 
             # Observe new state
             next_state = agent.get_state()
+            next_state_memory = torch.cat([current_state, next_state], 0)             
+
+            # update previous state
+            previous_state = current_state
 
             # Store the transition in memory
-            agent.memory.push(state, action, next_state, reward, done)
+            agent.memory.push(state_memory, action, next_state_memory, reward, done)
 
             # Perform one step of the optimization (on the policy network)
             agent.optimize_model()
@@ -221,7 +228,7 @@ def train():
                     record = 0
                     total_score_batch = 0
                     total_steps_per_game = 0
-                    agent.policy_net.save()
+                    agent.policy_net.save(file_name = 'snake_model_4x4.pth')
                 
                 break
 
