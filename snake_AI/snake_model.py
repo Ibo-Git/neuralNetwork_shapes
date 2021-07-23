@@ -16,14 +16,14 @@ class DQN(nn.Module):
         self.padding_2 = 10
 
         self.channel_output_conv_1 = 16
-        self.channel_output_conv_2 = 32
+        self.channel_output_conv_2 = 48
 
         convw = self.conv2d_size_out( self.conv2d_size_out( w, self.kernel_size_1, self.stride_1, self.padding_1 ), self.kernel_size_2, self.stride_2, self.padding_2 )
         convh = self.conv2d_size_out( self.conv2d_size_out( h, self.kernel_size_1, self.stride_1, self.padding_1 ), self.kernel_size_2, self.stride_2, self.padding_2 )
         linear_input_size = self.channel_output_conv_2 * convw * convh
 
         self.net = nn.Sequential(
-            nn.Conv2d(1, self.channel_output_conv_1, kernel_size=self.kernel_size_1, stride=self.stride_1, padding=self.padding_1),
+            nn.Conv2d(2, self.channel_output_conv_1, kernel_size=self.kernel_size_1, stride=self.stride_1, padding=self.padding_1),
             nn.BatchNorm2d(self.channel_output_conv_1),
             nn.ReLU(),
             nn.Conv2d(self.channel_output_conv_1, self.channel_output_conv_2, kernel_size=self.kernel_size_2, stride=self.stride_2, padding=self.padding_2),
@@ -33,11 +33,13 @@ class DQN(nn.Module):
             nn.Linear(linear_input_size, 128),
             nn.ReLU(),
             nn.Linear(128, outputs),
-            nn.Softmax()
         )
+
+        self.softmax = nn.Softmax(dim=1)
   
     def forward(self, x):
         x = self.net(x)
+        #x = self.softmax(x)
         return x
     
     
