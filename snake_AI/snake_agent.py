@@ -53,22 +53,20 @@ class ReplayMemory(object):
 
 
 class SnakeAgent():
-    def __init__(self, game, lr, batch_size, replay_memory_size, target_update, device):
+    def __init__(self, game, policy_net, target_net, optimizer, batch_size, replay_memory_size, target_update, device):
         # init game
         self.game = game
         self.device = device
 
         # init nets
-        self.n_actions = 4
-        self.policy_net = DQN(game.width, game.height, self.n_actions).to(self.device)
-
-        self.target_net = DQN(game.width, game.height, self.n_actions).to(self.device)    
+        self.policy_net = policy_net
+        self.target_net = target_net
         self.target_net.load_state_dict(self.policy_net.state_dict())
         self.target_net.eval()
         self.target_update = target_update
 
         # init optimizer and memory
-        self.optimizer = optim.Adam(self.policy_net.parameters(), lr=lr)
+        self.optimizer = optimizer
         self.replay_memory_size = replay_memory_size
         self.memory = ReplayMemory(replay_memory_size)
         
@@ -159,6 +157,7 @@ class SnakeAgent():
         self.optimizer.step()
 
 
+
 def train():
 
     plot_scores = []
@@ -166,18 +165,24 @@ def train():
     total_score = 0
     total_score_batch = 0
     total_steps_per_game = 0
-    num_games = 0
     record = 0
+
+    n_actions = 4
+    lr = 0.05
+    num_total_games = 10000
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     game = SnakeGame(width=5, height=4, show_UI=0, gamespeed=1000)
-    agent = SnakeAgent(game, lr=0.01, batch_size=64, replay_memory_size=10000, target_update=10, device=device)
+    policy_net = DQN(game.width, game.height, n_actions).to(device)
+    target_net = DQN(game.width, game.height, n_actions).to(device)
+    optimizer = optim.Adam(policy_net.parameters(), lr=lr)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, lr, total_steps=num_total_games)
+    agent = SnakeAgent(game, policy_net, target_net, optimizer, batch_size=64, replay_memory_size=10000, target_update=10, device=device)
     show_plot = False
 
-    while True:
+    for num_games in range(num_total_games):
         # Initialize the environment and state
         game.restart()
-        num_games += 1
         
         previous_state = agent.get_state()
         for t in count():
@@ -206,6 +211,9 @@ def train():
 
             # if game is done
             if done:
+                # adjust learning rate
+                scheduler.step()
+
                 # store record and save net
                 if score > record: 
                     record = score
@@ -222,6 +230,9 @@ def train():
                 total_steps_per_game += t
                 total_score_batch += score
                 if num_games % agent.batch_size == 0:
+                    print('Learning rate: ', optimizer.param_groups[0]['lr'], '\n')
+
+
                     mean_score = total_score_batch / agent.batch_size
                     mean_steps_per_game = total_steps_per_game / agent.batch_size
                     print('Game:', num_games, '    Record in batch:', record, '    mean score batch:', mean_score, '    mean steps per game:', mean_steps_per_game)
