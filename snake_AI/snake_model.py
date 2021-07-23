@@ -15,8 +15,8 @@ class DQN(nn.Module):
         self.padding_1 = 10
         self.padding_2 = 10
 
-        self.channel_output_conv_1 = 16
-        self.channel_output_conv_2 = 48
+        self.channel_output_conv_1 = 24
+        self.channel_output_conv_2 = 36
 
         convw = self.conv2d_size_out( self.conv2d_size_out( w, self.kernel_size_1, self.stride_1, self.padding_1 ), self.kernel_size_2, self.stride_2, self.padding_2 )
         convh = self.conv2d_size_out( self.conv2d_size_out( h, self.kernel_size_1, self.stride_1, self.padding_1 ), self.kernel_size_2, self.stride_2, self.padding_2 )

@@ -106,7 +106,7 @@ class SnakeGame():
         self.snake.appendleft(self.head)
 
         if self.head == self.food:
-            self.reward = 10
+            self.reward = 20
             self.snake_buffer = self.snake_buffer + self.food_gain
             self.score += 1
 
@@ -119,10 +119,10 @@ class SnakeGame():
             self.frame_iteration = 0
         elif self.snake_buffer != 0:
             self.snake_buffer -= 1
-            self.reward = 0
+            self.reward = -0.5
         else:
             self.snake.pop()
-            self.reward = 0
+            self.reward = -0.5
             
 
     
@@ -164,7 +164,7 @@ class SnakeGame():
         self.update_snake_and_food()
 
         if self.is_collision() or self.frame_iteration > 100*len(self.snake):
-            self.reward = -10
+            self.reward = -200
             self.game_over = 1
             return self.reward, self.game_over, self.score
 
