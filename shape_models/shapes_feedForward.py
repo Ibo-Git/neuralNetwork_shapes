@@ -45,8 +45,8 @@ class NetFF(ImageClassificationBase):
 
 def main():
     transform = transforms.Compose([transforms.Grayscale(), transforms.ToTensor(), transforms.Lambda(NetUtility.flatten)])
-    dataset = ImageFolder('./data_shape/train', transform=transform)
-    testset = ImageFolder('./data_shape/test', transform=transform)
+    dataset = ImageFolder('./datasets/data_shape/train', transform=transform)
+    testset = ImageFolder('./datasets/data_shape/test', transform=transform)
 
     train_dl, val_dl = NetUtility.load_data(dataset, [{ "shuffle": True, "percentage": 0.8 }, { "shuffle": False, "percentage": 0.2 }])
 
