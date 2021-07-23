@@ -170,8 +170,8 @@ def train():
     record = 0
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    game = SnakeGame(width=4, height=4, show_UI=0, gamespeed=1000)
-    agent = SnakeAgent(game, lr=0.0008, batch_size=72, replay_memory_size=10000, target_update=10, device=device)
+    game = SnakeGame(width=5, height=4, show_UI=0, gamespeed=1000)
+    agent = SnakeAgent(game, lr=0.01, batch_size=64, replay_memory_size=10000, target_update=10, device=device)
     show_plot = False
 
     while True:
@@ -228,7 +228,7 @@ def train():
                     record = 0
                     total_score_batch = 0
                     total_steps_per_game = 0
-                    agent.policy_net.save(file_name = 'snake_model_4x4.pth')
+                    agent.policy_net.save(file_name = 'snake_model_5x5_2.pth')
                 
                 break
 
