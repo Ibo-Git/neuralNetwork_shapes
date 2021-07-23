@@ -230,12 +230,12 @@ def train():
                 total_steps_per_game += t
                 total_score_batch += score
                 if num_games % agent.batch_size == 0:
-                    print('Learning rate: ', optimizer.param_groups[0]['lr'], '\n')
+                    print('Learning rate: ', optimizer.param_groups[0]['lr'])
 
 
                     mean_score = total_score_batch / agent.batch_size
                     mean_steps_per_game = total_steps_per_game / agent.batch_size
-                    print('Game:', num_games, '    Record in batch:', record, '    mean score batch:', mean_score, '    mean steps per game:', mean_steps_per_game)
+                    print('Game:', num_games, '    Record in batch:', record, '    mean score batch:', mean_score, '    mean steps per game:', mean_steps_per_game, '\n')
                     record = 0
                     total_score_batch = 0
                     total_steps_per_game = 0
