@@ -1,48 +1,19 @@
-import copy
-import itertools
-import math
+
 import os
 import pathlib
-import random
 import re
-import shutil
-import statistics
-import string
-import tarfile
-from collections import OrderedDict
-from enum import Enum
-from multiprocessing import Process, freeze_support
-from os import listdir
-from os.path import isfile, join
-from typing import Sequence
+
+
+
 import pickle
-import matplotlib.pyplot as plt
-import nltk
-import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torchvision
-from IPython.display import Image
-from IPython.lib.display import ScribdDocument
-from torch import are_deterministic_algorithms_enabled, optim
-from torch._C import device
-from torch.nn.modules.activation import ReLU
-from torch.nn.modules.batchnorm import BatchNorm2d
-from torch.optim import optimizer
-from torch.optim.lr_scheduler import LambdaLR
-from torch.utils.data import DataLoader, Dataset, dataloader, random_split
+
 from torchvision import transforms as transforms
-from torchvision.datasets import MNIST, ImageFolder
-from torchvision.datasets.utils import download_url
-from torchvision.transforms import ToTensor
-from torchvision.transforms.transforms import LinearTransformation
-from torchvision.utils import make_grid, save_image
 
 import csv
-from phoneme_model import ModelTransformer, Training
 from RNN import EncoderRNN, DecoderRNN, AttnDecoderRNN, train, evaluate
-
+from Transformer import modelTransformer, train_transformer, evaluate_transformer
 
 class UtilityRNN():
     def read_dataset(filename):
@@ -118,18 +89,40 @@ def transform_to_tensor(index_input, index_target, batch_size, vocab, device):
     else:
         max_len = len(max(index_input, key=len))
 
+    index_dec_in = index_target.copy()
     for i in range(len(index_input)):
         num_pad = max_len - len(index_input[i])
         index_input[i] = torch.tensor(index_input[i]+[vocab['<EOS>']]+[vocab['<PAD>']]*num_pad)
+
         num_pad = max_len - len(index_target[i])
-        index_target[i] = torch.tensor(index_target[i]+([vocab['<PAD>']]*num_pad))
+        index_dec_in[i] = torch.tensor([vocab['<SOS>']]+index_target[i]+([vocab['<PAD>']]*num_pad))
+        index_target[i] = torch.tensor(index_target[i]+[vocab['<EOS>']]+([vocab['<PAD>']]*num_pad))
 
-    input = index_input
+
+    enc_in = index_input
     target = index_target
+    dec_in = index_dec_in
 
-    return input, target
+    return enc_in, dec_in, target
 
+def batch_tensors(input, dec_in, target, len_string, percent, batch_size):
+
+    input = [torch.stack(input[i*batch_size:(i+1)*batch_size]) for i in range(len_string//batch_size)]
+    target = [torch.stack(target[i*batch_size:(i+1)*batch_size]) for i in range(len_string//batch_size)]
+    dec_in = [torch.stack(dec_in[i*batch_size:(i+1)*batch_size]) for i in range(len_string//batch_size)]
+
+    split_index = int(len_string * percent) // batch_size
+
+    input_train = input[0:split_index]
+    input_val = input[split_index:]
+
+    target_train = target[0:split_index]
+    target_val = target[split_index:]
+
+    dec_train = dec_in[0:split_index]
+    dec_val = dec_in[split_index:]
     
+    return input_train, input_val, target_train, target_val, dec_train, dec_val
 
 def main():
     batch_size = 32
@@ -139,11 +132,11 @@ def main():
     textfile_name = 'list_phoneme_input'
     vocabfile_name = 'list_phoneme_target'
 
-    if os.path.isfile((textfile_name + '.pkl')) and os.path.isfile((vocabfile_name + '.pkl')):
-        file_1 = open((vocabfile_name + '.pkl'), 'rb')
+    if os.path.isfile(os.path.join('Probearbeit', textfile_name + '.pkl')) and os.path.isfile(os.path.join('Probearbeit', vocabfile_name + '.pkl')):
+        file_1 = open(os.path.join('Probearbeit', vocabfile_name + '.pkl'), 'rb')
         phoneme_input = pickle.load(file_1)
 
-        file_2 = open((textfile_name + '.pkl'), 'rb')
+        file_2 = open(os.path.join('Probearbeit', textfile_name + '.pkl'), 'rb')
         phoneme_target = pickle.load(file_2)
     else:
         target = UtilityRNN.read_dataset('g2pPhonemes_PROBEARBEIT.tsv')
@@ -163,30 +156,29 @@ def main():
     index_input, index_target, vocab = UtilityRNN.assign_index(phoneme_input_splitted, phoneme_target_splitted, phoneme_list)    
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    input, target = transform_to_tensor(index_input, index_target, batch_size, vocab, device)
+    enc_in, dec_in, target = transform_to_tensor(index_input, index_target, batch_size, vocab, device)
+    input_train, input_val, target_train, target_val, dec_train, dec_val = batch_tensors(enc_in, dec_in, target, len_string, 0.8, batch_size)
+ 
+    max_length = enc_in[0].shape[0]
+    #encoder = EncoderRNN(len(input), 256, device).to(device)
+    #decoder = AttnDecoderRNN(256, len(vocab), device, 0.1, max_length).to(device)
 
-    split_index = int(len_string * 0.8)
-    input_train = input[0:split_index]
-    input_val = input[split_index:]
-    target_train = target[0:split_index]
-    target_val = target[split_index:]
-    max_length = input[0].shape[0]
-    encoder = EncoderRNN(len(input), 256, device).to(device)
-    decoder = AttnDecoderRNN(256, len(vocab), device, 0.1, max_length).to(device)
+    model = modelTransformer(len(vocab), 256, len(vocab), device, vocab).to(device)
+    transformer_optimizer = torch.optim.Adam(model.parameters(), lr = 0.0001)
     criterion = nn.CrossEntropyLoss(ignore_index=vocab['<PAD>'])
-    encoder_optimizer = torch.optim.Adam(encoder.parameters(), lr = 0.0001)
-    decoder_optimizer = torch.optim.Adam(decoder.parameters(), lr = 0.0001)
+    #encoder_optimizer = torch.optim.Adam(encoder.parameters(), lr = 0.0001)
+    #decoder_optimizer = torch.optim.Adam(decoder.parameters(), lr = 0.0001)
 
 
     for epoch in range(50):
         total_loss = 0
-        for i in range(len(input_train)):
-            _, _, _ = train(input_train[i], target_train[i], encoder, decoder, encoder_optimizer, decoder_optimizer, criterion, device, vocab, max_length=max_length)
-        for i in range(len(input_val)):
-            loss, decoded_output_seq, decoded_expected_seq = evaluate(input_val[i], target_val[i], encoder, decoder, device, vocab, criterion, max_length=max_length) 
+        for num_batch in range(len(input_train)):
+            _ = train_transformer(input_train[num_batch], dec_train[num_batch], target_train[num_batch], model, transformer_optimizer, criterion, device, vocab)
+        for num_batch in range(len(input_val)):
+            loss, decoded_output_seq, decoded_expected_seq = evaluate_transformer(input_val[num_batch], dec_val[num_batch], target_val[num_batch], model, device, vocab, criterion) 
             total_loss += loss
 
-        print('Epoch: {}, Loss: {}\n'.format(epoch, total_loss / i))
+        print('Epoch: {}, Loss: {}\n'.format(epoch, total_loss / num_batch))
         print('Expected: {} \nOutput: {}'.format(decoded_expected_seq, decoded_output_seq))
 
 
