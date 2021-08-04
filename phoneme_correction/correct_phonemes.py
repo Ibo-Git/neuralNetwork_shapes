@@ -1,5 +1,6 @@
 
 import csv
+import math
 import os
 import pickle
 import re
@@ -12,7 +13,7 @@ from torchvision import transforms as transforms
 from GRU import AttnDecoderRNN, DecoderRNN, EncoderRNN, evaluate, train
 from Transformer import (evaluate_transformer, modelTransformer,
                          train_transformer)
-
+from tqdm import tqdm
 
 class UtilityRNN():
     # load files
@@ -27,7 +28,7 @@ class UtilityRNN():
         return text
 
     # sort phonemes 
-    def sort_input(text_1, text_2, max_len):
+    def sort_input(text_1, text_2, len_data):
         phoneme_sorted = []
         list_phoneme_input, list_words_input = zip(*text_1)
         list_phoneme_target, list_words_target = zip(*text_2)
@@ -36,24 +37,26 @@ class UtilityRNN():
         list_words_target = list(list_words_target)
         list_phoneme_input = list(list_phoneme_input)
         list_phoneme_target = list(list_phoneme_target)
-        n = 0
-        while len(phoneme_sorted) < max_len:
-            if n % 500 == 0:
-                print('{}/{}'.format(n, max_len))
-            word = list_words_target[n]
-            if word in list_words_input.keys():
-                    n += 1
-                    phoneme_sorted.append(list_phoneme_input[list_words_input[word]])
-            else:
-                del list_words_target[n]
-                del list_phoneme_target[n]
 
-        return phoneme_sorted, list_phoneme_target[0:max_len]
+        n = 0
+        del_index = []
+        for n in tqdm(range(len_data)):
+            word = list_words_target[n]
+
+            if word in list_words_input.keys():
+                phoneme_sorted.append(list_phoneme_input[list_words_input[word]])
+            else:
+                del_index.append(n)
+                
+        for i in tqdm(range(len(del_index)-1, -1, -1)):
+            del list_phoneme_target[del_index[i]]
+
+        return phoneme_sorted, list_phoneme_target
 
     # split at phonemes
     def split_list(phoneme_list, words_list):
         splitted_list = []
-        for i, word in enumerate(words_list):
+        for i, word in enumerate(tqdm(words_list)):
             m = re.split(rf"({'|'.join(phoneme_list)})", word)
             m = [n for n in m if n]
             splitted_list.append(m)
@@ -61,23 +64,23 @@ class UtilityRNN():
 
     # sort unmatching phonemes out using BLEU score 
     def sort_out_phonemes(phoneme_input_splitted, phoneme_target_splitted):
-        for i, _ in enumerate(phoneme_input_splitted):
+
+        del_index = []
+        for i, _ in enumerate(tqdm(phoneme_input_splitted)):
             reference = phoneme_target_splitted[i]
             candidate = phoneme_input_splitted[i]
-            length =  len(reference)
-            if length <= 3:
-                weights = [1]
-            elif length < 10:
-                weights = [1 - (length-3)/6*0.5, (length-3)/6*0.5]
-            elif length < 20:
-                weights = [0.5 - (length-10)/9*0.17, 0.5 - (length-10)/9*0.17, (length-10)/9*0.33]
-            else: 
-                weights = [0.33, 0.33, 0.33]
+            ls_dist = nltk.edit_distance(reference, candidate, substitution_cost=1, transpositions=True)
 
-            score = nltk.translate.bleu_score.sentence_bleu([reference], candidate, weights=weights)
-            if score < 0.20 or length > 50:
-                del phoneme_target_splitted[i]
-                del phoneme_input_splitted[i]
+            if i == 154185:
+                print()
+            if ls_dist > math.ceil(0.4*len(reference)) or ls_dist > math.ceil(0.4*len(candidate)):
+                del_index.append(i)
+
+        for i in tqdm(range(len(del_index)-1, -1, -1)):
+            del phoneme_input_splitted[del_index[i]]
+            del phoneme_target_splitted[del_index[i]]
+
+        
         return phoneme_input_splitted, phoneme_target_splitted
  
     # assign index according to vocab 
@@ -99,7 +102,7 @@ class UtilityRNN():
             max_len = len(max(index_input, key=len))
 
         index_dec_in = index_target.copy()
-        for i in range(len(index_input)):
+        for i in tqdm(range(len(index_input))):
             num_pad = max_len - len(index_input[i])
             index_input[i] = torch.tensor(index_input[i]+[vocab['<EOS>']]+[vocab['<PAD>']]*num_pad)
 
@@ -132,6 +135,7 @@ class UtilityRNN():
         
         return input_train, input_val, target_train, target_val, dec_train, dec_val
 
+    # load if files exist, else perform text processing and save
     def save_or_load(phoneme_list, len_data, input_filename, target_filename, vocab_filename):
         if (os.path.isfile(os.path.join('phoneme_correction', input_filename + '.pkl')) and
             os.path.isfile(os.path.join('phoneme_correction', target_filename + '.pkl')) and
@@ -181,12 +185,12 @@ def main():
     # define device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # max length: 853592 -> max possible num batches = 26674 with batchsize = 32
-    batch_size = 32
-    len_data = batch_size*26000
+    # max length: 853592
+    len_data = 853592
     model_type = 'Transformer'
     num_epochs = 50
     learning_rate = 0.0002
+    batch_size = 32
 
     phoneme_list = ['T', 'i', 'I', 'e', 'E', 'y', '2', '9', '@', '6', '3', 'a', 'u', 'U', 'o', 'O', 'p', 'b', 't', 'd', 'tS', 'dZ', 'c', 'g', 'q', 'p', 'B', 'f', 'v', 's', 'z', 'S', 'Z', 'C', 'x', 'h', 'm', 'n', 'N', 'l', 'R', 'j', ':', '~', 'k', 'r', 'Y']
     # load if files exist, else perform text processing and save
