@@ -195,7 +195,7 @@ def main():
     # process text
     print('transform to tensors...')
     enc_in, dec_in, target = UtilityRNN.transform_to_tensor(index_input, index_target, vocab)
-    print('batch_data...')
+    print('batch data...')
     input_train, input_val, target_train, target_val, dec_train, dec_val = UtilityRNN.batch_tensors(input=enc_in, dec_in=dec_in, target=target, len_data=len(enc_in), percent=0.8, batch_size=batch_size)
 
     

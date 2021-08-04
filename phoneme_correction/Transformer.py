@@ -31,7 +31,7 @@ class modelTransformer(nn.Module):
             tgt_padding_mask.append((tgt[i] == self.vocab['<PAD>']))
         src_padding_mask = torch.stack(src_padding_mask)
         tgt_padding_mask = torch.stack(tgt_padding_mask)
-        tgt_mask = nn.Transformer.generate_square_subsequent_mask(self, sz = tgt_seq_len).to(self.device)
+        tgt_mask = self.transformer.generate_square_subsequent_mask(sz = tgt_seq_len).to(self.device)
 
         src = self.embedding(src)
         tgt = self.embedding(tgt)
