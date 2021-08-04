@@ -1,4 +1,4 @@
-#%%
+
 import copy
 import itertools
 import math
@@ -32,9 +32,6 @@ from torchvision.datasets.utils import download_url
 from torchvision.transforms import ToTensor
 from torchvision.transforms.transforms import LinearTransformation
 from torchvision.utils import make_grid, save_image
-
-from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
-
 
 class modelTransformer(nn.Module):
     def __init__(self, src_vocab_size, embedding_size, tgt_vocab_size, tgt_seq_len, device):
@@ -276,5 +273,3 @@ def main():
 if __name__ == '__main__':
     main()
 
-
-# %%
