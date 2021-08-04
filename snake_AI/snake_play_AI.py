@@ -2,14 +2,19 @@ import torch
 
 from snake_agent import SnakeAgent
 from snake_game import SnakeGame
+from snake_model import DQN
 
 
 def play():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    game = SnakeGame(width=4, height=4, show_UI=1, gamespeed=5)
-    agent = SnakeAgent(game, lr=0.01, batch_size=64, replay_memory_size=10000, target_update=10, device=device)
-    agent.policy_net.load('snake_model', agent.policy_net, device)
+    game = SnakeGame(width=5, height=4, show_UI=1, gamespeed=2, player='AI')
+    policy_net = DQN(game.width, game.height, 4).to(device)
+    target_net = DQN(game.width, game.height, 4).to(device)
+    optimizer = torch.optim.Adam(policy_net.parameters(), lr=0.01)
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(optimizer, 0.01, total_steps=10000)
+    agent = SnakeAgent(game, policy_net, target_net, optimizer, batch_size=64, replay_memory_size=10000, target_update=10, device=device)
+    agent.policy_net.load('snake_model_5x4_agv14-3', agent.policy_net, device)
 
     previous_state = agent.get_state()
     while True:
