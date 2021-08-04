@@ -183,8 +183,7 @@ def main():
 
     # max length: 853592 -> max possible num batches = 26674 with batchsize = 32
     batch_size = 32
-    num_batches = 26000
-    len_data = batch_size*num_batches
+    len_data = batch_size*26000
     model_type = 'Transformer'
     num_epochs = 50
     learning_rate = 0.0002
