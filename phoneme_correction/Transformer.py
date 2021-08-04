@@ -6,15 +6,18 @@ import torch.nn as nn
 
 
 class modelTransformer(nn.Module):
-    def __init__(self, src_vocab_size, embedding_size, tgt_vocab_size, device, vocab):
+    def __init__(self, src_vocab_size, tgt_vocab_size, embedding_size, heads, encoder_layer, decoder_layer, vocab, device):
         self.embedding_size = embedding_size
+        self.heads = heads
+        self.encoder_layer = encoder_layer
+        self.decoder_layer = decoder_layer
         self.device = device
         self.vocab = vocab
         super(modelTransformer, self).__init__()
 
         self.embedding = nn.Embedding(src_vocab_size, embedding_size)
         self.positional_encoding = PositionalEncoding(embedding_size)
-        self.transformer = nn.Transformer(embedding_size, nhead=8, num_encoder_layers=3, num_decoder_layers=3, dropout=0.1)
+        self.transformer = nn.Transformer(embedding_size, nhead=self.heads, num_encoder_layers=self.encoder_layer, num_decoder_layers=self.decoder_layer, dropout=0.1)
         self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
 
     def forward(self, src, tgt):

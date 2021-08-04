@@ -32,7 +32,7 @@ class UtilityRNN():
         list_phoneme_input, list_words_input = zip(*text_1)
         list_phoneme_target, list_words_target = zip(*text_2)
 
-        list_words_input = {key: value for key, value in enumerate(list(list_words_input))}
+        list_words_input = {key: value for value, key in enumerate(list(list_words_input))}
         list_words_target = list(list_words_target)
         list_phoneme_input = list(list_phoneme_input)
         list_phoneme_target = list(list_phoneme_target)
@@ -41,7 +41,7 @@ class UtilityRNN():
             if n % 500 == 0:
                 print('{}/{}'.format(n, max_len))
             word = list_words_target[n]
-            if word in list_words_input:
+            if word in list_words_input.keys():
                     n += 1
                     phoneme_sorted.append(list_phoneme_input[list_words_input[word]])
             else:
@@ -132,6 +132,50 @@ class UtilityRNN():
         
         return input_train, input_val, target_train, target_val, dec_train, dec_val
 
+    def save_or_load(phoneme_list, len_data, input_filename, target_filename, vocab_filename):
+        if (os.path.isfile(os.path.join('phoneme_correction', input_filename + '.pkl')) and
+            os.path.isfile(os.path.join('phoneme_correction', target_filename + '.pkl')) and
+            os.path.isfile(os.path.join('phoneme_correction', vocab_filename + '.pkl'))):
+            
+            print('load data...')
+            file_1 = open(os.path.join('phoneme_correction', input_filename + '.pkl'), 'rb')
+            index_input = pickle.load(file_1)
+
+            file_2 = open(os.path.join('phoneme_correction', target_filename + '.pkl'), 'rb')
+            index_target = pickle.load(file_2)
+
+            file_3 = open(os.path.join('phoneme_correction', vocab_filename + '.pkl'), 'rb')
+            vocab = pickle.load(file_3)
+        else:
+            # read dataset
+            print('read data...')
+            target = UtilityRNN.read_dataset(os.path.join('datasets', 'phonemes', 'g2pPhonemes_PROBEARBEIT.tsv'))
+            input = UtilityRNN.read_dataset(os.path.join('datasets', 'phonemes', 'modelPhonemes_PROBEARBEIT.tsv'))
+            # prepare dataset
+            print('sort data...')
+            phoneme_input, phoneme_target = UtilityRNN.sort_input(input, target, len_data)
+            print('split text...')
+            phoneme_input_splitted = UtilityRNN.split_list(phoneme_list, phoneme_input)
+            phoneme_target_splitted = UtilityRNN.split_list(phoneme_list, phoneme_target)
+            print('sort out phonemes...')
+            phoneme_input_splitted, phoneme_target_splitted = UtilityRNN.sort_out_phonemes(phoneme_input_splitted, phoneme_target_splitted)
+            print('assign index...')
+            index_input, index_target, vocab = UtilityRNN.assign_index(phoneme_input_splitted, phoneme_target_splitted, phoneme_list)
+        
+
+            # save data
+            print('save data...')
+            with open(os.path.join('phoneme_correction', input_filename + '.pkl'), "wb") as file_1:
+                pickle.dump(index_input, file_1)
+
+            with open(os.path.join('phoneme_correction', target_filename + '.pkl'), "wb") as file_2:
+                pickle.dump(index_target, file_2)
+
+            with open(os.path.join('phoneme_correction', vocab_filename + '.pkl'), "wb") as file_3:
+                pickle.dump(vocab, file_3)
+
+        return index_input, index_target, vocab
+
 
 def main():
     # define device
@@ -140,56 +184,30 @@ def main():
     # max length: 853592 -> max possible num batches = 26674 with batchsize = 32
     batch_size = 32
     num_batches = 26000
-    len_string = batch_size*num_batches
-
-    textfile_name = 'list_phoneme_input'
-    vocabfile_name = 'list_phoneme_target'
-    phoneme_list = ['T', 'i', 'I', 'e', 'E', 'y', '2', '9', '@', '6', '3', 'a', 'u', 'U', 'o', 'O', 'p', 'b', 't', 'd', 'tS', 'dZ', 'c', 'g', 'q', 'p', 'B', 'f', 'v', 's', 'z', 'S', 'Z', 'C', 'x', 'h', 'm', 'n', 'N', 'l', 'R', 'j', ':', '~', 'k', 'r', 'Y']
-    
+    len_data = batch_size*num_batches
     model_type = 'Transformer'
     num_epochs = 50
     learning_rate = 0.0002
 
+    phoneme_list = ['T', 'i', 'I', 'e', 'E', 'y', '2', '9', '@', '6', '3', 'a', 'u', 'U', 'o', 'O', 'p', 'b', 't', 'd', 'tS', 'dZ', 'c', 'g', 'q', 'p', 'B', 'f', 'v', 's', 'z', 'S', 'Z', 'C', 'x', 'h', 'm', 'n', 'N', 'l', 'R', 'j', ':', '~', 'k', 'r', 'Y']
     # load if files exist, else perform text processing and save
-    if os.path.isfile(os.path.join('phoneme_correction', textfile_name + '.pkl')) and os.path.isfile(os.path.join('phoneme_correction', vocabfile_name + '.pkl')):
-        print('load data...')
-        file_1 = open(os.path.join('phoneme_correction', vocabfile_name + '.pkl'), 'rb')
-        phoneme_input = pickle.load(file_1)
+    index_input, index_target, vocab = UtilityRNN.save_or_load(phoneme_list, len_data, input_filename = 'idx_input_phoneme', target_filename = 'idx_target_phoneme', vocab_filename = 'phoneme_vocab')
 
-        file_2 = open(os.path.join('phoneme_correction', textfile_name + '.pkl'), 'rb')
-        phoneme_target = pickle.load(file_2)
-    else:
-        print('read data...')
-        target = UtilityRNN.read_dataset(os.path.join('datasets', 'phonemes', 'g2pPhonemes_PROBEARBEIT.tsv'))
-        input = UtilityRNN.read_dataset(os.path.join('datasets', 'phonemes', 'modelPhonemes_PROBEARBEIT.tsv'))
-        print('sort data...')
-
-        phoneme_input, phoneme_target = UtilityRNN.sort_input(input, target, len_string)
-        print('save data...')
-        with open((vocabfile_name + '.pkl'), "wb") as file_1:
-            pickle.dump(phoneme_input, file_1)
-
-        with open((textfile_name + '.pkl'), "wb") as file_2:
-            pickle.dump(phoneme_target, file_2)
-    
-    # prepare dataset
-    print('split text...')
-    phoneme_input_splitted = UtilityRNN.split_list(phoneme_list, phoneme_input)
-    phoneme_target_splitted = UtilityRNN.split_list(phoneme_list, phoneme_target)
-    print('sort out phonemes...')
-    phoneme_input_splitted, phoneme_target_splitted = UtilityRNN.sort_out_phonemes(phoneme_input_splitted, phoneme_target_splitted)
-    print('assign index...')
-    index_input, index_target, vocab = UtilityRNN.assign_index(phoneme_input_splitted, phoneme_target_splitted, phoneme_list)
+    # process text
     print('transform to tensors...')
     enc_in, dec_in, target = UtilityRNN.transform_to_tensor(index_input, index_target, vocab)
     print('batch_data...')
-    input_train, input_val, target_train, target_val, dec_train, dec_val = UtilityRNN.batch_tensors(enc_in, dec_in, target, len(enc_in), 0.8, batch_size)
+    input_train, input_val, target_train, target_val, dec_train, dec_val = UtilityRNN.batch_tensors(input=enc_in, dec_in=dec_in, target=target, len_data=len(enc_in), percent=0.8, batch_size=batch_size)
+
+    
+
+
 
     # define loss criterion
     criterion = nn.CrossEntropyLoss(ignore_index=vocab['<PAD>'])
 
     if model_type == 'Transformer':
-        model = modelTransformer(len(vocab), 256, len(vocab), device, vocab).to(device)
+        model = modelTransformer(src_vocab_size=len(vocab), tgt_vocab_size=len(vocab), embedding_size=256, heads=4, encoder_layer=6, decoder_layer=6, vocab=vocab, device=device).to(device)
         transformer_optimizer = torch.optim.Adam(model.parameters(), lr = learning_rate)
 
         for epoch in range(num_epochs):
@@ -206,6 +224,9 @@ def main():
 
             print('Epoch: {}, val_loss: {}, val_acc: {}'.format(epoch, total_loss / (num_batch+1), total_acc / (num_batch+1)))
             print('Expected: {} \nOutput: {}\n'.format(decoded_expected_seq, decoded_output_seq))
+
+
+
 
     elif model_type == 'GRU':
         max_length = enc_in[0].shape[0]
@@ -233,6 +254,7 @@ def main():
 
             print('Epoch: {}, val_loss: {}, val_acc: {}'.format(epoch, total_loss / (i+1) / (n+1), total_acc / (i+1) / (n+1)))
             print('Expected: {} \nOutput: {}\n'.format(decoded_expected_seq, decoded_output_seq))
+
 
 
 
