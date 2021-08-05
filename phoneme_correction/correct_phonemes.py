@@ -9,11 +9,11 @@ import nltk
 import torch
 import torch.nn as nn
 from torchvision import transforms as transforms
+from tqdm import tqdm
 
 from GRU import AttnDecoderRNN, DecoderRNN, EncoderRNN, evaluate, train
-from Transformer import (evaluate_transformer, modelTransformer,
-                         train_transformer)
-from tqdm import tqdm
+from Transformer import Trainer, modelTransformer
+
 
 class UtilityRNN():
     # load files
@@ -38,25 +38,20 @@ class UtilityRNN():
         list_phoneme_input = list(list_phoneme_input)
         list_phoneme_target = list(list_phoneme_target)
 
-        n = 0
-        del_index = []
-        for n in tqdm(range(len_data)):
+        for n in tqdm(range(len_data-1, -1, -1)):
             word = list_words_target[n]
 
-            if word in list_words_input.keys():
-                phoneme_sorted.append(list_phoneme_input[list_words_input[word]])
+            if word in list_words_input:
+                phoneme_sorted.insert(0, list_phoneme_input[list_words_input[word]])
             else:
-                del_index.append(n)
-                
-        for i in tqdm(range(len(del_index)-1, -1, -1)):
-            del list_phoneme_target[del_index[i]]
-
-        return phoneme_sorted, list_phoneme_target
+                del list_phoneme_target[n]            
+            
+        return phoneme_sorted, list_phoneme_target[0:len(phoneme_sorted)]
 
     # split at phonemes
     def split_list(phoneme_list, words_list):
         splitted_list = []
-        for i, word in enumerate(tqdm(words_list)):
+        for word in tqdm(words_list):
             m = re.split(rf"({'|'.join(phoneme_list)})", word)
             m = [n for n in m if n]
             splitted_list.append(m)
@@ -65,20 +60,14 @@ class UtilityRNN():
     # sort unmatching phonemes out using BLEU score 
     def sort_out_phonemes(phoneme_input_splitted, phoneme_target_splitted):
 
-        del_index = []
-        for i, _ in enumerate(tqdm(phoneme_input_splitted)):
+        for i in tqdm(range(len(phoneme_input_splitted)-1, -1, -1)):
             reference = phoneme_target_splitted[i]
             candidate = phoneme_input_splitted[i]
             ls_dist = nltk.edit_distance(reference, candidate, substitution_cost=1, transpositions=True)
 
-            if i == 154185:
-                print()
             if ls_dist > math.ceil(0.4*len(reference)) or ls_dist > math.ceil(0.4*len(candidate)):
-                del_index.append(i)
-
-        for i in tqdm(range(len(del_index)-1, -1, -1)):
-            del phoneme_input_splitted[del_index[i]]
-            del phoneme_target_splitted[del_index[i]]
+                del phoneme_input_splitted[i]
+                del phoneme_target_splitted[i]
 
         
         return phoneme_input_splitted, phoneme_target_splitted
@@ -93,8 +82,23 @@ class UtilityRNN():
 
         return index_input, index_target, vocab
 
-    # transform to tensors and insert or append EOS/SOS/PAD tokens
+    # append SOS and EOS tokens
     def transform_to_tensor(index_input, index_target, vocab):
+        index_dec_in = index_target.copy()
+
+        for i in tqdm(range(len(index_input))):
+            index_input[i] = torch.tensor(index_input[i]+[vocab['<EOS>']])
+            index_dec_in[i] = torch.tensor([vocab['<SOS>']]+index_target[i])
+            index_target[i] = torch.tensor(index_target[i]+[vocab['<EOS>']])
+
+        enc_in = index_input
+        target = index_target
+        dec_in = index_dec_in
+
+        return enc_in, dec_in, target
+
+    # transform to tensors and insert or append EOS/SOS/PAD tokens
+    def transform_to_tensor_2(index_input, index_target, vocab):
 
         if len(max(index_target, key=len)) > len(max(index_input, key=len)):
             max_len = len(max(index_target, key=len))
@@ -181,6 +185,12 @@ class UtilityRNN():
         return index_input, index_target, vocab
 
 
+class CustomDataset():
+    def __init__(self):
+        super(CustomDataset, self).__init__()
+        
+
+
 def main():
     # define device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -198,7 +208,7 @@ def main():
 
     # process text
     print('transform to tensors...')
-    enc_in, dec_in, target = UtilityRNN.transform_to_tensor(index_input, index_target, vocab)
+    enc_in, dec_in, target = UtilityRNN.transform_to_tensor_2(index_input, index_target, vocab)
     print('batch data...')
     input_train, input_val, target_train, target_val, dec_train, dec_val = UtilityRNN.batch_tensors(input=enc_in, dec_in=dec_in, target=target, len_data=len(enc_in), percent=0.8, batch_size=batch_size)
 
@@ -212,21 +222,24 @@ def main():
     if model_type == 'Transformer':
         model = modelTransformer(src_vocab_size=len(vocab), tgt_vocab_size=len(vocab), embedding_size=256, heads=4, encoder_layer=6, decoder_layer=6, vocab=vocab, device=device).to(device)
         transformer_optimizer = torch.optim.Adam(model.parameters(), lr = learning_rate)
+        trainer = Trainer(model, transformer_optimizer, criterion, vocab, device)
 
         for epoch in range(num_epochs):
             total_loss = 0
             total_acc = 0
+
             print('start training...')
-            for num_batch in range(len(input_train)):
-                _ = train_transformer(input_train[num_batch], dec_train[num_batch], target_train[num_batch], model, transformer_optimizer, criterion, device, vocab)
+            for num_batch in tqdm(range(len(input_train))):
+                train_loss = trainer.train_transformer(input_train[num_batch], dec_train[num_batch], target_train[num_batch])
+
             print('start validation...')
-            for num_batch in range(len(input_val)):
-                loss, acc, decoded_output_seq, decoded_expected_seq = evaluate_transformer(input_val[num_batch], dec_val[num_batch], target_val[num_batch], model, device, vocab, criterion) 
+            for num_batch in tqdm(range(len(input_val))):
+                loss, acc, decoded_input_seq, decoded_output_seq, decoded_expected_seq = trainer.evaluate_transformer(input_val[num_batch], dec_val[num_batch], target_val[num_batch]) 
                 total_loss += loss
                 total_acc += acc
 
             print('Epoch: {}, val_loss: {}, val_acc: {}'.format(epoch, total_loss / (num_batch+1), total_acc / (num_batch+1)))
-            print('Expected: {} \nOutput: {}\n'.format(decoded_expected_seq, decoded_output_seq))
+            print('Input: {}\nOutput: {} \nExpected: {}\n'.format(decoded_input_seq, decoded_output_seq, decoded_expected_seq))
 
 
 
