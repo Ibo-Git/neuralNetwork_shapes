@@ -74,6 +74,7 @@ class Trainer():
         self.criterion = criterion
         self.vocab = vocab
         self.device = device
+        self.key_list = list(self.vocab)
 
 
     def train_transformer(self, input_tensor, decoder_input, target_tensor):
@@ -119,7 +120,7 @@ class Trainer():
         for output_seq, target_seq in zip(output, target):
             idx_EOS_target = self.get_end_of_sentence(target_seq)
             ls_dist = nltk.edit_distance(output_seq[0:idx_EOS_target], target_seq[0:idx_EOS_target], substitution_cost=1, transpositions=True)
-            acc = 1 - ls_dist/len(target_seq[0:idx_EOS_target])
+            acc = 1 - ls_dist/(idx_EOS_target + 1)
             total_acc += acc
 
         self.idx_EOS_target = self.get_end_of_sentence(target[num_sequence])
@@ -137,12 +138,11 @@ class Trainer():
 
 
     def decode_seq(self, sequence, idx_EOS=None):
-        key_list = list(self.vocab)
 
         if idx_EOS == None:
             idx_EOS = self.get_end_of_sentence(sequence)
 
-        decoded_sequence = [key_list[index] for index in sequence[0:idx_EOS]]
+        decoded_sequence = [self.key_list[index] for index in sequence[0:idx_EOS]]
 
         return decoded_sequence
 

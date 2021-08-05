@@ -157,8 +157,8 @@ class UtilityRNN():
         else:
             # read dataset
             print('read data...')
-            target = UtilityRNN.read_dataset(os.path.join('datasets', 'phonemes', 'g2pPhonemes_PROBEARBEIT.tsv'))
-            input = UtilityRNN.read_dataset(os.path.join('datasets', 'phonemes', 'modelPhonemes_PROBEARBEIT.tsv'))
+            target = UtilityRNN.read_dataset(os.path.join('datasets', 'phonemes', 'g2pPhonemes.tsv'))
+            input = UtilityRNN.read_dataset(os.path.join('datasets', 'phonemes', 'modelPhonemes.tsv'))
             # prepare dataset
             print('sort data...')
             phoneme_input, phoneme_target = UtilityRNN.sort_input(input, target, len_data)
@@ -185,10 +185,6 @@ class UtilityRNN():
         return index_input, index_target, vocab
 
 
-class CustomDataset():
-    def __init__(self):
-        super(CustomDataset, self).__init__()
-        
 
 
 def main():
@@ -199,8 +195,8 @@ def main():
     len_data = 853592
     model_type = 'Transformer'
     num_epochs = 50
-    learning_rate = 0.0002
-    batch_size = 32
+    learning_rate = 0.0001
+    batch_size = 512
 
     phoneme_list = ['T', 'i', 'I', 'e', 'E', 'y', '2', '9', '@', '6', '3', 'a', 'u', 'U', 'o', 'O', 'p', 'b', 't', 'd', 'tS', 'dZ', 'c', 'g', 'q', 'p', 'B', 'f', 'v', 's', 'z', 'S', 'Z', 'C', 'x', 'h', 'm', 'n', 'N', 'l', 'R', 'j', ':', '~', 'k', 'r', 'Y']
     # load if files exist, else perform text processing and save
