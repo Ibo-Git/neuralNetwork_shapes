@@ -1,14 +1,17 @@
-
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 
 
+class TokenIDX():
+    PAD_IDX = 0
+    UNK_IDX = 1
+    SOS_IDX = 2
+    EOS_IDX = 3
+
+
 class TransformerDataset(Dataset):
-
-    def __init__(self, decoder_input, expected_output, vocab, batch_size, minibatch_size=None):
-        self.vocab = vocab
-
+    def __init__(self, decoder_input, expected_output, batch_size, minibatch_size=None):
         # expects decoder_input and expected_output to be a list of shape [N, sequence]
         # cuts off end of list if it does not fit into batch_size
         self.decoder_input = self.transform_to_tensor(decoder_input[0:len(decoder_input) // batch_size * batch_size])
@@ -35,12 +38,12 @@ class TransformerDataset(Dataset):
 
     def insert_EOS(self, dataset):
         # appends EOS to dataset consiting of sequences
-        return [torch.cat((torch.tensor(sequence), torch.tensor([self.vocab['<EOS>']]))) for sequence in dataset]
+        return [torch.cat((torch.tensor(sequence), torch.tensor(TokenIDX.EOS_IDX))) for sequence in dataset]
 
 
     def insert_SOS(self, dataset):
         # insert SOS in dataset consiting of sequences
-        return [torch.cat((torch.tensor([self.vocab['<SOS>']]), torch.tensor(sequence))) for sequence in dataset]
+        return [torch.cat((torch.tensor(TokenIDX.SOS_IDX), torch.tensor(sequence))) for sequence in dataset]
     
     def transform_to_tensor(self, dataset):
         # transform to tensor without insert EOS or SOS
@@ -53,8 +56,8 @@ class TransformerDataset(Dataset):
         decoder_input, expected_output = zip(*batch)
 
         # pad batch
-        decoder_input = pad_sequence(decoder_input, batch_first=True, padding_value = self.vocab['<PAD>'])
-        expected_output = pad_sequence(expected_output, batch_first=True, padding_value = self.vocab['<PAD>'])
+        decoder_input = pad_sequence(decoder_input, batch_first=True, padding_value = TokenIDX.PAD_IDX)
+        expected_output = pad_sequence(expected_output, batch_first=True, padding_value = TokenIDX.PAD_IDX)
 
         # reshape
         decoder_input = decoder_input.reshape(self.reshape_size)        
