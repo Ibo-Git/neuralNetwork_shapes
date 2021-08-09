@@ -2,32 +2,32 @@ import os
 import pathlib
 import pickle
 from enum import Enum
-
+from torch.utils.data import DataLoader
 import youtokentome as yttm
 
 from TransformerDataset import TransformerDataset, TokenIDX
 
 
 class DataProcessing():
-    def __init__(self, file_path, model_path, save_path, load_filename, state='save'):
+    def __init__(self, filepath, savepath, txt_filename, modelname, load_filename, state='save'):
         super(DataProcessing, self).__init__()
-        # path to read and save txt files
-        self.file_path = file_path
-        self.model_path = model_path
-        self.save_path = save_path
-        self.load_filename = load_filename
+        self.filepath = filepath
         self.state = state
 
-        self.txt_file_path = os.path.join(save_path, 'law_file.txt')
+        self.txt_filepath = os.path.join(filepath, txt_filename) # file path to read file from
+        self.txt_filepath_lc = os.path.join(savepath, 'lowercase.txt') # file path to save file with lower case
+        self.modelpath = os.path.join(savepath, modelname) # file path to load model 
+        self.save_filepath = os.path.join(savepath, load_filename) # file path to save bpe-encoded file
+
         self.read_data()
 
 
     def read_data(self):
-        with open(self.file_path, 'r', encoding="UTF-8") as file:
+        with open(self.txt_filepath, 'r', encoding="UTF-8") as file:
             file = file.read()
             self.file = file.lower()
         
-        with open(self.txt_file_path, 'w', encoding='UTF-8') as txt_file:
+        with open(self.txt_filepath_lc, 'w', encoding='UTF-8') as txt_file:
             txt_file.write(self.file)
 
     
@@ -35,30 +35,29 @@ class DataProcessing():
         # process and save
         if self.state == 'save':
             yttm.BPE.train(
-                data = self.txt_file_path, 
+                data = self.txt_filepath_lc, 
                 vocab_size = vocab_size, 
-                model = self.model_path, 
+                model = self.modelpath, 
                 pad_id = TokenIDX.PAD_IDX,
                 unk_id = TokenIDX.UNK_IDX,
                 bos_id = TokenIDX.SOS_IDX,
                 eos_id = TokenIDX.EOS_IDX
             )
 
-            self.bpe = yttm.BPE(model=self.model_path)
-            vocab = self.bpe.vocab()
+            self.bpe = yttm.BPE(model=self.modelpath)
             encoded_file = self.bpe.encode([self.file], output_type=yttm.OutputType.ID)
 
-            savename = os.path.join(self.save_path, 'vocab_enc_' + str(vocab_size) + '.pkl')
-            with open(savename, 'wb') as file:
-                pickle.dump([vocab, encoded_file], file)
+            with open(self.save_filepath, 'wb') as file:
+                pickle.dump(encoded_file, file)
 
         # load
         elif self.state == 'load':
-            loadname = os.path.join(self.save_path, self.load_filename)
-            with open(loadname, 'rb') as file:
-                vocab, encoded_file = pickle.load(file)
+            self.bpe = yttm.BPE(model=self.modelpath)
 
-        return vocab, encoded_file
+            with open(self.save_filepath, 'rb') as file:
+                encoded_file = pickle.load(file)
+
+        return self.bpe.vocab(), encoded_file
 
 
     def decode_sequence(self, sequence):
@@ -67,19 +66,31 @@ class DataProcessing():
 
 
 def main():
-    # specify all path
-    filepath = os.path.join('datasets', 'law', 'law.txt')
-    modelpath = os.path.join('saved_files', 'law', 'law.model')
+    # define hyperparameters
+    vocab_size = 200
+    batch_size = 128
+
+    # specify all path and filenames
+    filepath = os.path.join('datasets', 'law')
     savepath = os.path.join('saved_files', 'law')
-    load_filename = 'vocab_enc_100.pkl'
+    txt_filename = 'law.txt'
+    load_filename = 'bpe_' + str(vocab_size) + '.pkl'
+    modelname = 'bpe_' + str(vocab_size) + '.model'
 
     # process data
-    processor = DataProcessing(filepath, modelpath, savepath, load_filename, 'load')
-    vocab, encoded_file = processor.data_preprocessing(vocab_size = 100)
+    processor = DataProcessing(filepath, savepath, txt_filename, modelname, load_filename, 'save')
+    vocab, encoded_file = processor.data_preprocessing(vocab_size=vocab_size)
+    # split data into given sequence length
 
     # dataloader
+    train_ds = TransformerDataset(train_dec_in, train_exp_out, batch_size)
+    val_ds = TransformerDataset(val_dec_in, val_exp_out, batch_size)
+    train_dl = DataLoader(train_ds, batch_size, shuffle=True, num_workers=4, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=True)
+    train_dl = DataLoader(val_ds, batch_size, shuffle=True, num_workers=4, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=True)
 
-    print()
+    # model
+
+    # training
 
 if __name__ == '__main__':
     main()
