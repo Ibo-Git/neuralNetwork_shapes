@@ -37,6 +37,7 @@ class TransformerDecoderModel(nn.Module):
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_encoder_layers)
         self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
 
+
     def forward(self, tgt):
         # masks
         tgt_seq_len = tgt.shape[1]

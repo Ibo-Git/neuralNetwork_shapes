@@ -125,9 +125,9 @@ def main():
 
     # Training loop
     for epoch in range(num_epochs):
+        print('Epoch:', epoch)
 
         # training
-        print('Epoch:', epoch)
         print('Start training...')
         model.train()
         total_train_loss = 0
