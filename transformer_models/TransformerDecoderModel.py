@@ -93,7 +93,7 @@ class Trainer():
         output = torch.argmax(output, 2)
         accuracy = torch.sum(output.reshape(-1) == exp_out_flat) / len(exp_out_flat)
         
-        return loss, accuracy, output
+        return loss, accuracy, output.detach()
 
     
     def test_model(self, transformer_model, bpe_model_path, input_string, gen_seq_len):
