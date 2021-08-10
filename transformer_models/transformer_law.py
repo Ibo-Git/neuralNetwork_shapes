@@ -75,7 +75,7 @@ class DataProcessing():
 
 
     def decode_sequence(self, sequence):
-        decoded_sequence = self.bpe.decode(ids=sequence, ignore_ids=None)
+        decoded_sequence = self.bpe.decode(ids=sequence)
         return decoded_sequence
 
 
@@ -94,7 +94,7 @@ def main():
     embedding_size = 128; n_heads = 4; num_encoder_layers = 6; dropout = 0.1
     # ...for optimizer
     lr = 0.00002
-    # for training
+    # ...for training
     num_epochs = 100
 
 
@@ -145,9 +145,10 @@ def main():
             total_val_loss += val_batch_loss
             total_val_acc += val_batch_acc
 
-        decoded_output_sequence = processor.decode_sequence(output_sequence)
+        decoded_output_sequences = processor.decode_sequence(output_sequence[0:2].tolist())
         print('val_loss: {}, val_acc: {}'.format(total_val_loss / (num_batch + 1), val_batch_acc / (num_batch + 1)))
-
+        print('Output: {}'.format(decoded_output_sequences))
+        
 if __name__ == '__main__':
     main()
 

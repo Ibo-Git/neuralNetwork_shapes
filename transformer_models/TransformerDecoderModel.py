@@ -85,6 +85,7 @@ class Trainer():
     def evaluate(self, dec_in, exp_out, exp_out_flat):
         output = self.model(dec_in)
         loss = self.criterion(output.reshape(exp_out_flat.shape[0], -1), exp_out_flat)
-        accuracy = torch.sum(torch.argmax(output, 2).reshape(-1) == exp_out_flat) / len(exp_out_flat)
+        output = torch.argmax(output, 2)
+        accuracy = torch.sum(output.reshape(-1) == exp_out_flat) / len(exp_out_flat)
         
         return loss, accuracy, output
