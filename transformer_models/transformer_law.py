@@ -4,7 +4,7 @@ import pickle
 import random
 
 import torch
-import tqdm
+from tqdm import tqdm
 import youtokentome as yttm
 from torch.cuda import is_available
 from torch.functional import split
@@ -84,7 +84,7 @@ def main():
     # ...for data processing
     vocab_size = 200
     batch_size = 128
-    num_minibatches = 1 # set to 1 if no minibatch is required
+    num_minibatches = 2 # set to 1 if no minibatch is required
     minibatch_size = int(batch_size / num_minibatches)
     sequence_length = 100
     split_val_percent = 0.2
@@ -114,7 +114,7 @@ def main():
     train_ds = TransformerDataset(train_sequences, train_sequences, batch_size=batch_size)
     val_ds = TransformerDataset(val_sequences, val_sequences, batch_size=batch_size)
     train_dl = DataLoader(train_ds, batch_size=minibatch_size, shuffle=True, num_workers=4, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=True)
-    val_dl = DataLoader(val_ds, batch_size=minibatch_size, shuffle=True, num_workers=4, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=True)
+    val_dl = DataLoader(val_ds, batch_size=minibatch_size, shuffle=False, num_workers=4, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=True)
 
     # model & training
     model = TransformerDecoderModel(tgt_vocab_size=len(vocab), embedding_size=embedding_size, n_heads=n_heads, num_encoder_layers=num_encoder_layers, dropout=dropout, device=device).to(device)
@@ -122,33 +122,47 @@ def main():
     scheduler = None
     trainer = Trainer(model, optimizer, scheduler, num_minibatches, device)
 
+
     # Training loop
     for epoch in range(num_epochs):
+
         # training
+        print('Epoch:', epoch)
         print('Start training...')
         model.train()
         total_train_loss = 0
-        for num_batch, (decoder_input, expected_output, expected_output_flat) in enumerate(train_dl):
-            print(num_batch)
-            train_batch_loss = trainer.train(decoder_input.to(device), expected_output, expected_output_flat.to(device))
+        for num_batch, (decoder_input, expected_output, expected_output_flat) in enumerate(tqdm(train_dl)):
+            # to device
+            decoder_input = decoder_input.to(device)
+            expected_output_flat = expected_output_flat.to(device)
+            # train
+            train_batch_loss = trainer.train(decoder_input, expected_output_flat)
             total_train_loss += train_batch_loss
 
-        print('Epoch: {}, train_loss: {}'.format(epoch, total_train_loss / (num_batch + 1)))
+        print('train_loss: {}\n'.format(total_train_loss / (num_batch + 1)))
 
         # validation
         print('Start validation...')
         model.eval()
         total_val_loss = 0
         total_val_acc = 0
-        for num_batch, (decoder_input, expected_output, expected_output_flat) in enumerate(val_dl):
-            val_batch_loss, val_batch_acc, output_sequence = trainer.evaluate(decoder_input.to(device), expected_output, expected_output_flat.to(device))
+        for num_batch, (decoder_input, expected_output, expected_output_flat) in enumerate(tqdm(val_dl)):
+            # to device
+            decoder_input = decoder_input.to(device)
+            expected_output_flat = expected_output_flat.to(device)
+            # evaluate
+            val_batch_loss, val_batch_acc, output_batch = trainer.evaluate(decoder_input, expected_output_flat)
             total_val_loss += val_batch_loss
             total_val_acc += val_batch_acc
 
-        decoded_output_sequences = processor.decode_sequence(output_sequence[0:2].tolist())
-        print('val_loss: {}, val_acc: {}'.format(total_val_loss / (num_batch + 1), val_batch_acc / (num_batch + 1)))
-        print('Output: {}'.format(decoded_output_sequences))
+        # decode sequences: [0] -> first entry of batch. [0:N] also possible to display more outputs
+        decoded_output = processor.decode_sequence(output_batch[0].tolist())
+        decoded_exp_output = processor.decode_sequence(expected_output[0].tolist())
+        # show results 
+        print('val_loss: {}, val_acc: {}\n'.format(total_val_loss / (num_batch + 1), total_val_acc / (num_batch + 1)))
+        print('Output: {}\nExpected: {}\n'.format(decoded_output, decoded_exp_output))
         
+
 if __name__ == '__main__':
     main()
 

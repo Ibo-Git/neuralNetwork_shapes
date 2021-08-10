@@ -64,7 +64,7 @@ class Trainer():
         self.total_batch_loss = 0
         self.optimizer.zero_grad()
 
-    def train(self, dec_in, exp_out, exp_out_flat):
+    def train(self, dec_in, exp_out_flat):
         output = self.model(dec_in)
         loss = self.criterion(output.reshape(exp_out_flat.shape[0], -1), exp_out_flat)
         loss.backward()
@@ -79,12 +79,14 @@ class Trainer():
             self.minibatch_counter = 0
             total_batch_loss = self.total_batch_loss
             self.total_batch_loss = 0
+            
+            return total_batch_loss / self.num_minibatches
         
-        return total_batch_loss / self.num_minibatches
+        else: return 0
 
-    def evaluate(self, dec_in, exp_out, exp_out_flat):
+    def evaluate(self, dec_in, exp_out_flat):
         output = self.model(dec_in)
-        loss = self.criterion(output.reshape(exp_out_flat.shape[0], -1), exp_out_flat)
+        loss = self.criterion(output.reshape(exp_out_flat.shape[0], -1), exp_out_flat).item()
         output = torch.argmax(output, 2)
         accuracy = torch.sum(output.reshape(-1) == exp_out_flat) / len(exp_out_flat)
         
