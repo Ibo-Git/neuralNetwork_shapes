@@ -4,6 +4,7 @@ import os
 import torch
 import torch.nn as nn
 import youtokentome as yttm
+from tqdm import tqdm
 
 from TransformerDataset import TokenIDX
 
@@ -93,7 +94,7 @@ class Trainer():
         output = torch.argmax(output, 2)
         accuracy = torch.sum(output.reshape(-1) == exp_out_flat) / len(exp_out_flat)
         
-        return loss, accuracy, output
+        return loss, accuracy, output.detach()
 
     
     def test_model(self, transformer_model, bpe_model_path, input_string, gen_seq_len):
@@ -107,7 +108,8 @@ class Trainer():
         output = torch.argmax(transformer_model(encoded_string.unsqueeze(0)), 2)
         output = torch.cat((output, gen_output), 1)
         # feed model with its own outputs
-        for i in range(len(encoded_string)-1, gen_seq_len + len(encoded_string) - 1):
+        print('Start generating output...')
+        for i in tqdm(range(len(encoded_string)-1, gen_seq_len + len(encoded_string) - 1)):
             output[0][i+1] = torch.argmax(transformer_model(output[0][i].unsqueeze(0).unsqueeze(0).type(torch.LongTensor)), 2)
 
         # decode string

@@ -1,44 +1,15 @@
-import copy
-import itertools
 import math
 import os
 import pathlib
 import random
 import re
-import shutil
-import statistics
-import string
-import tarfile
-from multiprocessing import Process, freeze_support
-from os import listdir
-from os.path import isfile, join
-from typing import Sequence
+from enum import Enum
 
-import cv2 as cv
-import matplotlib
-import matplotlib.pyplot as plt
 import nltk
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import torchvision
-from IPython.display import Image
-from IPython.lib.display import ScribdDocument
-from torch import are_deterministic_algorithms_enabled, optim
-from torch._C import device
-from torch.nn.modules.batchnorm import BatchNorm2d
-from torch.optim import optimizer
-from torch.optim.lr_scheduler import LambdaLR
-from torch.utils.data import DataLoader, Dataset, dataloader, random_split
 from torchvision import transforms as transforms
-from torchvision.datasets import MNIST, ImageFolder
-from torchvision.datasets.utils import download_url
-from torchvision.transforms import ToTensor
-from torchvision.transforms.transforms import LinearTransformation
-from torchvision.utils import make_grid, save_image
-
-from NetBase import DeviceDataLoader, ImageClassificationBase, NetUtility
 
 
 class ModelTransformer(nn.Module):
@@ -143,15 +114,19 @@ class ModelTransformer(nn.Module):
 class UtilityRNN():
     def read_dataset():
         current_path = pathlib.Path().absolute()
-        files_names = os.listdir(os.path.join(current_path, 'trump\\originals'))
+        files_names = os.listdir(os.path.join(current_path, 'datasets', 'trump', 'originals'))
         file_all = []
 
         for file_name in files_names:
-            with open(os.path.join(current_path, 'trump\\originals', file_name), 'r', encoding="UTF-8") as file:
+            with open(os.path.join(current_path, 'datasets', 'trump', 'originals', file_name), 'r', encoding="UTF-8") as file:
                 file = file.read().replace('\n', '')
             file_all.append(file)
         
         file_all = ''.join(file_all)
+
+        with open(os.path.join('datasets', 'trump', 'all_files.txt'), 'w', encoding='UTF-8') as file:
+            file.write(file_all)
+
         return file_all
 
     def get_unique_words(text):
@@ -291,15 +266,11 @@ class UtilityRNN():
         return encodedVec
 
 
-from enum import Enum
-
-
 class ManagedTensorMemoryStorageMode(Enum):
     DEFAULT_DEVICE = 0
     CPU = 1
     GPU = 2
     
-
 
 class ManagedTensor:
     def init(device):
@@ -399,6 +370,7 @@ def main():
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, 1.0, gamma=0.95)
 
     model.start_training(num_epochs, optimizer, scheduler)
+
 
 if __name__ == '__main__':
     main()
