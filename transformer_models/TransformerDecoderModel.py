@@ -1,7 +1,9 @@
 import math
+import os
 
 import torch
 import torch.nn as nn
+import youtokentome as yttm
 
 from TransformerDataset import TokenIDX
 
@@ -35,13 +37,13 @@ class TransformerDecoderModel(nn.Module):
         self.pos_encoder = PositionalEncoding(embedding_size, dropout)
         encoder_layer = nn.TransformerEncoderLayer(embedding_size, nhead=n_heads, dim_feedforward=2048, dropout=dropout, batch_first=True, device=device)
         self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_encoder_layers)
-        self.fc_out = nn.Linear(embedding_size, tgt_vocab_size)
+        self.fc_out = nn.Linear(embedding_size, tgt_vocab_size) 
 
 
     def forward(self, tgt):
         # masks
         tgt_seq_len = tgt.shape[1]
-        tgt_attn_mask = nn.Transformer.generate_square_subsequent_mask(self, tgt_seq_len)
+        tgt_attn_mask = nn.Transformer.generate_square_subsequent_mask(self, tgt_seq_len).to(self.device)
         tgt_padding_mask = (tgt == TokenIDX.PAD_IDX)
 
         out = self.embedding(tgt)
@@ -92,3 +94,36 @@ class Trainer():
         accuracy = torch.sum(output.reshape(-1) == exp_out_flat) / len(exp_out_flat)
         
         return loss, accuracy, output
+
+    
+    def test_model(self, transformer_model, bpe_model_path, input_string, gen_seq_len):
+        # load model
+        bpe = yttm.BPE(model=bpe_model_path)
+        # encode input and transform to tensor (insert SOS)
+        encoded_string = bpe.encode([input_string], output_type=yttm.OutputType.ID)
+        encoded_string = torch.cat((torch.tensor([TokenIDX.SOS_IDX]), torch.tensor(encoded_string[0])))
+        # create empty output tensor of needed length
+        gen_output = torch.empty(gen_seq_len).unsqueeze(0)
+        output = torch.argmax(transformer_model(encoded_string.unsqueeze(0)), 2)
+        output = torch.cat((output, gen_output), 1)
+        # feed model with its own outputs
+        for i in range(len(encoded_string)-1, gen_seq_len + len(encoded_string) - 1):
+            output[0][i+1] = torch.argmax(transformer_model(output[0][i].unsqueeze(0).unsqueeze(0).type(torch.LongTensor)), 2)
+
+        # decode string
+        decoded_output = bpe.decode(output.tolist())
+
+        return decoded_output
+
+    
+    def save(self, savepath, filename):
+        filepath = os.path.join(savepath, filename + '.pth')
+        if not os.path.exists(savepath):
+            os.makedirs(savepath)
+
+        torch.save(self.model.state_dict(), filepath)
+
+
+    def load(self, loadpath, filename):
+        self.model.load_state_dict(torch.load(os.path.join(loadpath, filename + '.pth'), map_location=torch.device(self.device)))
+        self.model.eval()

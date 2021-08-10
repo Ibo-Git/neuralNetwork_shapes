@@ -21,7 +21,7 @@ class DataProcessing():
         self.state = state
 
         self.txt_filepath = os.path.join(filepath, txt_filename) # file path to read file from
-        self.txt_filepath_lc = os.path.join(savepath, 'lowercase.txt') # file path to save file with lower case
+        self.txt_filepath_lc = os.path.join(filepath, 'lowercase.txt') # file path to save file with lower case
         self.modelpath = os.path.join(savepath, modelname) # file path to load model 
         self.save_filepath = os.path.join(savepath, load_filename) # file path to save bpe-encoded file
 
@@ -88,7 +88,7 @@ def main():
     minibatch_size = int(batch_size / num_minibatches)
     sequence_length = 100
     split_val_percent = 0.2
-    state = 'load'
+    state = 'save'
     # ...for model 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     embedding_size = 128; n_heads = 4; num_encoder_layers = 6; dropout = 0.1
@@ -99,8 +99,14 @@ def main():
 
 
     # specify all path and filenames
+    
     filepath = os.path.join('datasets', 'law')
     savepath = os.path.join('saved_files', 'law')
+    if not os.path.isdir(filepath):
+        os.makedirs(filepath)
+    if not os.path.isdir(savepath):
+        os.makedirs(savepath)
+
     txt_filename = 'law.txt'
     load_filename = 'bpe_' + str(vocab_size) + '.pkl'
     modelname = 'bpe_' + str(vocab_size) + '.model'
@@ -114,7 +120,7 @@ def main():
     train_ds = TransformerDataset(train_sequences, train_sequences, batch_size=batch_size)
     val_ds = TransformerDataset(val_sequences, val_sequences, batch_size=batch_size)
     train_dl = DataLoader(train_ds, batch_size=minibatch_size, shuffle=True, num_workers=4, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=True)
-    val_dl = DataLoader(val_ds, batch_size=minibatch_size, shuffle=False, num_workers=4, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=True)
+    val_dl = DataLoader(val_ds, batch_size=minibatch_size, shuffle=True, num_workers=4, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=True)
 
     # model & training
     model = TransformerDecoderModel(tgt_vocab_size=len(vocab), embedding_size=embedding_size, n_heads=n_heads, num_encoder_layers=num_encoder_layers, dropout=dropout, device=device).to(device)
@@ -122,6 +128,7 @@ def main():
     scheduler = None
     trainer = Trainer(model, optimizer, scheduler, num_minibatches, device)
 
+    # trainer.test_model(model, os.path.join(savepath, modelname), 'Hallo, mein Freund :) .', 10)
 
     # Training loop
     for epoch in range(num_epochs):
