@@ -12,7 +12,7 @@ class TokenIDX():
 
 class TransformerDataset(Dataset):
     def __init__(self, decoder_input, expected_output, batch_size, max_len):
-        self.max_len = max_len + 1
+        self.max_len = max_len
 
         # expects decoder_input and expected_output to be a list of shape [N, sequence]
         # cuts off end of list if it does not fit into batch_size

@@ -63,27 +63,27 @@ class DataProcessing():
             with open(self.save_filepath, 'rb') as file:
                 encoded_file = pickle.load(file)
 
-        return self.bpe.vocab(), encoded_file
+        return self.bpe.vocab(), encoded_file[0]
 
 
     def data_splitting(self, encoded_file, sequence_length, split_val_percent):
 
-        sequences = [[] for i in range(len(encoded_file[0])//sequence_length+1)]
+        sequences = [[] for i in range(len(encoded_file)//sequence_length+1)]
         num_token = 0
         num_sequence = 0
-        for i in tqdm(range(len(encoded_file[0]))):
+        for i in tqdm(range(len(encoded_file))):
 
             if num_token >= sequence_length:
-                if encoded_file[0][i+1][0] == '▁':
+                if encoded_file[i+1][0] == '▁':
                     num_token = 0
                     sequences[num_sequence] = ''.join(sequences[num_sequence])
                     sequences[num_sequence].replace('▁',' ')
                     sequences[num_sequence] = self.bpe.encode(sequences[num_sequence], output_type=yttm.OutputType.ID)
                     num_sequence += 1
                 else:
-                    sequences[num_sequence].append(encoded_file[0][i])
+                    sequences[num_sequence].append(encoded_file[i])
             else:
-                sequences[num_sequence].append(encoded_file[0][i])
+                sequences[num_sequence].append(encoded_file[i])
                 num_token += 1
 
         del sequences[num_sequence:]
@@ -150,8 +150,6 @@ def main():
     scheduler = None
     trainer = Trainer(model, optimizer, scheduler, num_minibatches, device)
 
-    for a, b, c in train_dl:
-        print()
     # trainer.test_model(model, os.path.join(savepath, modelname), 'Hallo, mein Freund :) .', 10)
 
     # Training loop
