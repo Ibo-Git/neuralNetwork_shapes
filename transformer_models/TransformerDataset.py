@@ -11,13 +11,13 @@ class TokenIDX():
 
 
 class TransformerDataset(Dataset):
-    def __init__(self, decoder_input, expected_output, batch_size, max_len):
-        self.max_len = max_len
-
+    def __init__(self, decoder_input, expected_output, batch_size):
         # expects decoder_input and expected_output to be a list of shape [N, sequence]
         # cuts off end of list if it does not fit into batch_size
         self.decoder_input = self.insert_SOS(decoder_input[0:len(decoder_input) // batch_size * batch_size])
         self.expected_output = self.insert_EOS(expected_output[0:len(expected_output) // batch_size * batch_size])
+        self.decoder_input = pad_sequence(self.decoder_input, batch_first=True, padding_value=TokenIDX.PAD_IDX)
+        self.expected_output = pad_sequence(self.expected_output, batch_first=True, padding_value=TokenIDX.PAD_IDX)
 
     def __len__(self):
         return len(self.expected_output)
@@ -31,12 +31,12 @@ class TransformerDataset(Dataset):
 
     def insert_EOS(self, dataset):
         # appends EOS to dataset consiting of sequences
-        return [torch.cat(( torch.tensor(sequence), torch.tensor([TokenIDX.EOS_IDX]), torch.tensor((self.max_len - len(sequence))*[TokenIDX.PAD_IDX]) )) for sequence in dataset]
+        return [torch.cat(( torch.tensor(sequence), torch.tensor([TokenIDX.EOS_IDX]))) for sequence in dataset]
 
 
     def insert_SOS(self, dataset):
         # insert SOS in dataset consiting of 
-        return [torch.cat(( torch.tensor([TokenIDX.SOS_IDX]), torch.tensor(sequence), torch.tensor((self.max_len - len(sequence))*[TokenIDX.PAD_IDX]) )) for sequence in dataset]
+        return [torch.cat(( torch.tensor([TokenIDX.SOS_IDX]), torch.tensor(sequence))) for sequence in dataset]
 
     
     def transform_to_tensor(self, dataset):
