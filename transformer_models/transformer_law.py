@@ -51,7 +51,7 @@ class DataProcessing():
             )
 
             self.bpe = yttm.BPE(model=self.modelpath)
-            encoded_file = self.bpe.encode([self.file], output_type=yttm.OutputType.ID)
+            encoded_file = self.bpe.encode([self.file], output_type=yttm.OutputType.SUBWORD)
 
             with open(self.save_filepath, 'wb') as file:
                 pickle.dump(encoded_file, file)
@@ -67,7 +67,27 @@ class DataProcessing():
 
 
     def data_splitting(self, encoded_file, sequence_length, split_val_percent):
-        sequences = [encoded_file[0][x:x + sequence_length] for x in range(0, len(encoded_file[0]), sequence_length)]
+
+        sequences = [[] for i in range(len(encoded_file[0])//sequence_length+1)]
+        num_token = 0
+        num_sequence = 0
+        for i in tqdm(range(len(encoded_file[0]))):
+
+            if num_token >= sequence_length:
+                if encoded_file[0][i+1][0] == '▁':
+                    num_token = 0
+                    sequences[num_sequence] = ''.join(sequences[num_sequence])
+                    sequences[num_sequence].replace('▁',' ')
+                    sequences[num_sequence] = self.bpe.encode(sequences[num_sequence], output_type=yttm.OutputType.ID)
+                    num_sequence += 1
+                else:
+                    sequences[num_sequence].append(encoded_file[0][i])
+            else:
+                sequences[num_sequence].append(encoded_file[0][i])
+                num_token += 1
+
+        del sequences[num_sequence:]
+
         random.shuffle(sequences)
         train_sequences =  sequences[:math.floor(len(sequences)*(1-split_val_percent))]
         val_sequences =  sequences[math.floor(len(sequences)*(1-split_val_percent)):]
@@ -122,6 +142,7 @@ def main():
     train_dl = DataLoader(train_ds, batch_size=minibatch_size, shuffle=True, num_workers=4, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=True)
     val_dl = DataLoader(val_ds, batch_size=minibatch_size, shuffle=True, num_workers=4, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=True)
 
+    
     # model & training
     model = TransformerDecoderModel(tgt_vocab_size=len(vocab), embedding_size=embedding_size, n_heads=n_heads, num_encoder_layers=num_encoder_layers, dropout=dropout, device=device).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
