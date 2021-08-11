@@ -71,6 +71,8 @@ class DataProcessing():
         sequences = [[] for i in range(len(encoded_file)//sequence_length+1)]
         num_token = 0
         num_sequence = 0
+
+        print('Split data...')
         for i in tqdm(range(len(encoded_file))):
 
             if num_token >= sequence_length:
@@ -98,12 +100,13 @@ class DataProcessing():
         decoder_sequence =  [[] for i in range(len(sequences))]
         target_sequence = [[] for i in range(len(sequences))]
 
+        print('Transform to tensors: Insert SOS, EOS and PAD...')
         for i, sequence in enumerate(tqdm(sequences)):
             decoder_sequence[i] =  torch.tensor([TokenIDX.SOS_IDX] + sequence + (max_len-len(sequence)+1)*[TokenIDX.PAD_IDX])
             target_sequence[i] = torch.tensor(sequence + [TokenIDX.EOS_IDX] + (max_len-len(sequence)+1)*[TokenIDX.PAD_IDX])
 
         random.shuffle(sequences)
-        
+
         train_dec_sequences =  decoder_sequence[:math.floor(len(decoder_sequence)*(1-split_val_percent))]
         train_target_sequences = target_sequence[:math.floor(len(target_sequence)*(1-split_val_percent))]
         val_dec_sequences =  decoder_sequence[math.floor(len(decoder_sequence)*(1-split_val_percent)):]
@@ -152,7 +155,6 @@ def main():
     # process data
     processor = DataProcessing(filepath, savepath, txt_filename, modelname, load_filename, state)
     vocab, encoded_file = processor.data_preprocessing(vocab_size=vocab_size)
-    print('Split data...')
     train_dec_sequences, train_target_sequences, val_dec_sequences, val_target_sequences = processor.data_splitting(encoded_file, sequence_length, split_val_percent)
     # dataloader
     train_ds = TransformerDataset(train_dec_sequences, train_target_sequences, batch_size=batch_size)
