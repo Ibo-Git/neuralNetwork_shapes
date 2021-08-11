@@ -88,6 +88,7 @@ class DataProcessing():
                         num_sequence += 1
                 else:
                     sequences[num_sequence].append(encoded_file[i])
+                    num_token += 1
             else:
                 sequences[num_sequence].append(encoded_file[i])
                 num_token += 1
