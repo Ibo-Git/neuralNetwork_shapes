@@ -88,10 +88,11 @@ class DataProcessing():
 
         del sequences[num_sequence:]
 
+        max_len = len(max(sequences, key=len))
         random.shuffle(sequences)
         train_sequences =  sequences[:math.floor(len(sequences)*(1-split_val_percent))]
         val_sequences =  sequences[math.floor(len(sequences)*(1-split_val_percent)):]
-        return train_sequences, val_sequences
+        return train_sequences, val_sequences, max_len
 
 
     def decode_sequence(self, sequence):
@@ -134,21 +135,23 @@ def main():
     # process data
     processor = DataProcessing(filepath, savepath, txt_filename, modelname, load_filename, state)
     vocab, encoded_file = processor.data_preprocessing(vocab_size=vocab_size)
-    train_sequences, val_sequences = processor.data_splitting(encoded_file, sequence_length, split_val_percent)
-
+    print('Split data...')
+    train_sequences, val_sequences, max_len = processor.data_splitting(encoded_file, sequence_length, split_val_percent)
     # dataloader
-    train_ds = TransformerDataset(train_sequences, train_sequences, batch_size=batch_size)
-    val_ds = TransformerDataset(val_sequences, val_sequences, batch_size=batch_size)
-    train_dl = DataLoader(train_ds, batch_size=minibatch_size, shuffle=True, num_workers=4, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=True)
-    val_dl = DataLoader(val_ds, batch_size=minibatch_size, shuffle=True, num_workers=4, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=True)
+    train_ds = TransformerDataset(train_sequences, train_sequences, batch_size=batch_size, max_len=max_len)
+    val_ds = TransformerDataset(val_sequences, val_sequences, batch_size=batch_size, max_len=max_len)
+    train_dl = DataLoader(train_ds, batch_size=minibatch_size, shuffle=True, num_workers=0, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=False)
+    val_dl = DataLoader(val_ds, batch_size=minibatch_size, shuffle=True, num_workers=0, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=False)
 
-    
+
     # model & training
     model = TransformerDecoderModel(tgt_vocab_size=len(vocab), embedding_size=embedding_size, n_heads=n_heads, num_encoder_layers=num_encoder_layers, dropout=dropout, device=device).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = None
     trainer = Trainer(model, optimizer, scheduler, num_minibatches, device)
 
+    for a, b, c in train_dl:
+        print()
     # trainer.test_model(model, os.path.join(savepath, modelname), 'Hallo, mein Freund :) .', 10)
 
     # Training loop
