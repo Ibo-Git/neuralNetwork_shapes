@@ -75,11 +75,15 @@ class DataProcessing():
 
             if num_token >= sequence_length:
                 if encoded_file[i+1][0] == '▁':
-                    num_token = 0
-                    sequences[num_sequence] = ''.join(sequences[num_sequence])
-                    sequences[num_sequence].replace('▁',' ')
-                    sequences[num_sequence] = self.bpe.encode(sequences[num_sequence], output_type=yttm.OutputType.ID)
-                    num_sequence += 1
+                    if num_token > sequence_length*1.25:
+                        del sequences[num_sequence]
+                        num_token = 0
+                    else:
+                        num_token = 0
+                        sequences[num_sequence] = ''.join(sequences[num_sequence])
+                        sequences[num_sequence].replace('▁',' ')
+                        sequences[num_sequence] = self.bpe.encode(sequences[num_sequence], output_type=yttm.OutputType.ID)
+                        num_sequence += 1
                 else:
                     sequences[num_sequence].append(encoded_file[i])
             else:
@@ -88,11 +92,24 @@ class DataProcessing():
 
         del sequences[num_sequence:]
 
+
         max_len = len(max(sequences, key=len))
+
+        decoder_sequence =  [[] for i in range(len(sequences))]
+        target_sequence = [[] for i in range(len(sequences))]
+
+        for i, sequence in enumerate(tqdm(sequences)):
+            decoder_sequence[i] =  torch.tensor([TokenIDX.SOS_IDX] + sequence + (max_len-len(sequence)+1)*[TokenIDX.PAD_IDX])
+            target_sequence[i] = torch.tensor(sequence + [TokenIDX.EOS_IDX] + (max_len-len(sequence)+1)*[TokenIDX.PAD_IDX])
+
         random.shuffle(sequences)
-        train_sequences =  sequences[:math.floor(len(sequences)*(1-split_val_percent))]
-        val_sequences =  sequences[math.floor(len(sequences)*(1-split_val_percent)):]
-        return train_sequences, val_sequences, max_len
+        
+        train_dec_sequences =  decoder_sequence[:math.floor(len(decoder_sequence)*(1-split_val_percent))]
+        train_target_sequences = target_sequence[:math.floor(len(target_sequence)*(1-split_val_percent))]
+        val_dec_sequences =  decoder_sequence[math.floor(len(decoder_sequence)*(1-split_val_percent)):]
+        val_target_sequences =  target_sequence[math.floor(len(target_sequence)*(1-split_val_percent)):]
+
+        return train_dec_sequences, train_target_sequences, val_dec_sequences, val_target_sequences
 
 
     def decode_sequence(self, sequence):
@@ -136,10 +153,10 @@ def main():
     processor = DataProcessing(filepath, savepath, txt_filename, modelname, load_filename, state)
     vocab, encoded_file = processor.data_preprocessing(vocab_size=vocab_size)
     print('Split data...')
-    train_sequences, val_sequences, max_len = processor.data_splitting(encoded_file, sequence_length, split_val_percent)
+    train_dec_sequences, train_target_sequences, val_dec_sequences, val_target_sequences = processor.data_splitting(encoded_file, sequence_length, split_val_percent)
     # dataloader
-    train_ds = TransformerDataset(train_sequences, train_sequences, batch_size=batch_size, max_len=max_len)
-    val_ds = TransformerDataset(val_sequences, val_sequences, batch_size=batch_size, max_len=max_len)
+    train_ds = TransformerDataset(train_dec_sequences, train_target_sequences, batch_size=batch_size)
+    val_ds = TransformerDataset(val_dec_sequences, val_target_sequences, batch_size=batch_size)
     train_dl = DataLoader(train_ds, batch_size=minibatch_size, shuffle=True, num_workers=0, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=False)
     val_dl = DataLoader(val_ds, batch_size=minibatch_size, shuffle=True, num_workers=0, collate_fn=TransformerDataset.collate_fn, pin_memory=True, persistent_workers=False)
 
