@@ -56,37 +56,29 @@ class TransformerDecoderModel(nn.Module):
 
 
 class Trainer():
-    def __init__(self, model, optimizer, scheduler, num_minibatches, device):
+    def __init__(self, model, optimizer, scheduler, device):
         super(Trainer, self).__init__()
         self.model = model
         self.optimizer = optimizer
         self.scheduler = scheduler
         self.criterion = nn.CrossEntropyLoss(ignore_index=TokenIDX.PAD_IDX)
         self.device = device
-        self.num_minibatches = num_minibatches
-        self.minibatch_counter = 0
-        self.total_batch_loss = 0
         self.optimizer.zero_grad()
 
-    def train(self, dec_in, exp_out_flat):
+
+    def train_batch(self, dec_in, exp_out_flat):
         output = self.model(dec_in)
         loss = self.criterion(output.reshape(exp_out_flat.shape[0], -1), exp_out_flat)
-        loss.backward()
-        self.total_batch_loss += loss.item() 
-        self.minibatch_counter += 1
+        loss.backward()                    
+        return loss.item()
 
-        # update every batch
-        if self.minibatch_counter == self.num_minibatches:
-            self.optimizer.step()
-            self.optimizer.zero_grad()
-            if self.scheduler is not None: self.scheduler.step()
-            self.minibatch_counter = 0
-            total_batch_loss = self.total_batch_loss
-            self.total_batch_loss = 0
-            
-            return total_batch_loss / self.num_minibatches
-        
-        else: return 0
+    def train_update(self):
+        self.optimizer.step()
+        if self.scheduler is not None: self.scheduler.step()
+
+    def train_reset(self):
+        self.optimizer.zero_grad()
+
 
     def evaluate(self, dec_in, exp_out_flat):
         output = self.model(dec_in)

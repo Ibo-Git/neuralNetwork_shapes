@@ -168,7 +168,7 @@ def main():
     model = TransformerDecoderModel(tgt_vocab_size=len(vocab), embedding_size=embedding_size, n_heads=n_heads, num_encoder_layers=num_encoder_layers, dropout=dropout, device=device).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     scheduler = None
-    trainer = Trainer(model, optimizer, scheduler, num_minibatches, device)
+    trainer = Trainer(model, optimizer, scheduler, device)
 
     # trainer.test_model(model, os.path.join(savepath, modelname), 'Hallo, mein Freund :) .', 10)
 
@@ -180,15 +180,19 @@ def main():
         print('Start training...')
         model.train()
         total_train_loss = 0
-        for num_batch, (decoder_input, expected_output, expected_output_flat) in enumerate(tqdm(train_dl)):
+        for num_minibatch, (decoder_input, expected_output, expected_output_flat) in enumerate(tqdm(train_dl)):
             # to device
             decoder_input = decoder_input.to(device)
             expected_output_flat = expected_output_flat.to(device)
             # train
-            train_batch_loss = trainer.train(decoder_input, expected_output_flat)
-            total_train_loss += train_batch_loss
+            train_minibatch_loss = trainer.train_batch(decoder_input, expected_output_flat)
+            total_train_loss += train_minibatch_loss
 
-        print('train_loss: {}\n'.format(total_train_loss / (num_batch + 1)))
+            if (num_minibatch + 1) % num_minibatches == 0:
+                trainer.train_update()
+                trainer.train_reset()
+
+        print('train_loss: {}\n'.format(total_train_loss / (num_minibatch + 1)))
 
         # validation
         print('Start validation...')
