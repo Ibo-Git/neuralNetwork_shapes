@@ -8,7 +8,7 @@ from snake_model import DQN
 def play():
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    game = SnakeGame(width=5, height=4, show_UI=1, gamespeed=2, player='AI')
+    game = SnakeGame(width=5, height=4, show_UI=1, gamespeed=5, player='AI')
     policy_net = DQN(game.width, game.height, 4).to(device)
     target_net = DQN(game.width, game.height, 4).to(device)
     optimizer = torch.optim.Adam(policy_net.parameters(), lr=0.01)
