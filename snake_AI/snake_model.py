@@ -48,7 +48,7 @@ class DQN(nn.Module):
 
 
     def save(self, file_name = 'snake_model.pth'):
-        model_folder_path = '.\saved_files'
+        model_folder_path = '.\saved_files\snake_models'
         if not os.path.exists(model_folder_path):
             os.makedirs(model_folder_path)
 
@@ -57,7 +57,7 @@ class DQN(nn.Module):
 
 
     def load(self, filename, model, device):
-        model.load_state_dict(torch.load(os.path.join('.\saved_files', filename + '.pth'), map_location=torch.device(device)))
+        model.load_state_dict(torch.load(os.path.join('.\saved_files\snake_models', filename + '.pth'), map_location=torch.device(device)))
         model.eval()
 
 
