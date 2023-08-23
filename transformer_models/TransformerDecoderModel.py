@@ -4,6 +4,7 @@ import os
 import torch
 import torch.nn as nn
 import youtokentome as yttm
+from nltk.translate.bleu_score import sentence_bleu
 from tqdm import tqdm
 
 from TransformerDataset import TokenIDX
@@ -80,14 +81,19 @@ class Trainer():
         self.optimizer.zero_grad()
 
 
-    def evaluate(self, dec_in, exp_out_flat):
+    def evaluate(self, dec_in, exp_out, exp_out_flat):
         output = self.model(dec_in)
         loss = self.criterion(output.reshape(exp_out_flat.shape[0], -1), exp_out_flat).item()
         output = torch.argmax(output, 2)
-        accuracy = torch.sum(output.reshape(-1) == exp_out_flat) / len(exp_out_flat)
+        accuracy = 0 #self.get_accuracy(output, exp_out)
         
         return loss, accuracy, output.detach()
 
+    def get_accuracy(self, output, expected_output):
+        for i in range(output.shape[0]):
+            score = sentence_bleu([str(output[i].tolist())], [expected_output[i].tolist()],  weights=(0.25, 0.25, 0.25, 0.25))
+
+        return score / i
     
     def test_model(self, transformer_model, bpe_model_path, input_string, gen_seq_len):
         # load model

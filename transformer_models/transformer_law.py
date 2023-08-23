@@ -204,7 +204,7 @@ def main():
             decoder_input = decoder_input.to(device)
             expected_output_flat = expected_output_flat.to(device)
             # evaluate
-            val_batch_loss, val_batch_acc, output_batch = trainer.evaluate(decoder_input, expected_output_flat)
+            val_batch_loss, val_batch_acc, output_batch = trainer.evaluate(decoder_input, expected_output, expected_output_flat)
             total_val_loss += val_batch_loss
             total_val_acc += val_batch_acc
 
